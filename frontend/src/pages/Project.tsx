@@ -158,6 +158,7 @@ function EditModal({
   const [tags, setTags] = useState(project.tags.join(", "));
   const [license, setLicense] = useState(project.license);
   const [remixes, setRemixes] = useState(project.remix_of);
+  const [makerworldUrl, setMakerworldUrl] = useState(project.makerworld_url ?? "");
 
   return (
     <Modal open={open} title="Edit project" onClose={onClose}>
@@ -170,6 +171,7 @@ function EditModal({
             license,
             tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
             remix_of: remixes.filter((r) => r.url.trim()),
+            makerworld_url: makerworldUrl.trim() || undefined,
           });
           onClose();
         }}
@@ -243,6 +245,17 @@ function EditModal({
           >
             + Add source
           </button>
+        </div>
+
+        <div>
+          <label className="label">Makerworld URL</label>
+          <p className="text-xs text-slate-500 mt-1">Published model link on makerworld.com.</p>
+          <input
+            className="input"
+            value={makerworldUrl}
+            onChange={(e) => setMakerworldUrl(e.target.value)}
+            placeholder="https://makerworld.com/en/models/…"
+          />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
@@ -465,6 +478,27 @@ function FilesTab({ project }: { project: Project }) {
       </div>
 
       <div className="space-y-5">
+        <section className="card p-4 h-fit">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Published</h2>
+            {!project.makerworld_url && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium border border-slate-600 text-slate-400">
+                Not published
+              </span>
+            )}
+          </div>
+          {project.makerworld_url && (
+            <a
+              href={project.makerworld_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-sky-400 hover:underline break-all"
+            >
+              {project.makerworld_url}
+            </a>
+          )}
+        </section>
+
         <DocumentsPanel project={project} />
 
         <section className="card p-4 h-fit">
@@ -617,6 +651,15 @@ function PrintsTab({ project }: { project: Project }) {
     onError: (error: Error) => notify(error.message, "error"),
   });
 
+  const remove = useMutation({
+    mutationFn: (printId: string) => api.deletePrint(printId, true),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+      notify("Print deleted", "success");
+    },
+    onError: (error: Error) => notify(error.message, "error"),
+  });
+
   return (
     <div className="space-y-4">
       <div
@@ -653,10 +696,19 @@ function PrintsTab({ project }: { project: Project }) {
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {project.prints.map((print) => (
-            <div key={print.id} className="card p-4 space-y-2">
+            <div key={print.id} className="card p-4 space-y-2 group">
               <div className="flex items-start justify-between gap-2">
                 <p className="font-medium text-sm truncate">{print.name}</p>
-                <StatusBadge status={print.status} />
+                <div className="flex items-center gap-2 shrink-0">
+                  <StatusBadge status={print.status} />
+                  <button
+                    className="btn btn-ghost text-xs px-1 py-0 opacity-0 group-hover:opacity-100 hover:text-rose-400"
+                    title="Delete"
+                    onClick={() => remove.mutate(print.id)}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400">
                 <span>Time: {formatDuration(print.estimated_s)}</span>

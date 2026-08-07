@@ -41,6 +41,7 @@ export default function PublishPage() {
   const [tags, setTags] = useState("");
   const [category, setCategory] = useState("");
   const [license, setLicense] = useState("");
+  const [makerworldUrl, setMakerworldUrl] = useState(project?.makerworld_url ?? "");
   const [template, setTemplate] = useState("default");
   const [assets, setAssets] = useState<string[]>([]);
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
@@ -59,18 +60,25 @@ export default function PublishPage() {
     setChecklist(draft.checklist ?? {});
   }, [draft]);
 
+  // Seed once the project arrives — makerworld_url lives on the project, not the draft.
+  useEffect(() => {
+    if (!project) return;
+    setMakerworldUrl(project.makerworld_url ?? "");
+  }, [project]);
+
   const body = useMemo(
     () => ({
       title,
       description,
       category,
       license,
+      makerworld_url: makerworldUrl.trim() || undefined,
       template,
       assets,
       checklist,
       tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
     }),
-    [title, description, category, license, template, assets, checklist, tags],
+    [title, description, category, license, makerworldUrl, template, assets, checklist, tags],
   );
 
   const save = useMutation({
@@ -330,6 +338,17 @@ export default function PublishPage() {
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 placeholder="Household"
+              />
+            </div>
+
+
+            <div>
+              <label className="label mb-0">Makerworld URL</label>
+              <input
+                className="input mt-1"
+                value={makerworldUrl}
+                onChange={(e) => setMakerworldUrl(e.target.value)}
+                placeholder="https://makerworld.com/en/models/…"
               />
             </div>
 

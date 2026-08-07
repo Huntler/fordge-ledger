@@ -27,6 +27,7 @@ export interface ProjectSummary {
   license: string;
   notes: string;
   cover_image: string;
+  makerworld_url: string | null;
   model_count: number;
   print_count: number;
   unfiled_count: number;
@@ -132,6 +133,7 @@ export interface PrintJob {
 
 export interface Project extends ProjectSummary {
   remix_of: RemixSource[];
+  makerworld_url: string | null;
   models: ModelEntry[];
   files: ProjectFile[];
   unfiled: { rel_path: string; kind: string; size: number }[];

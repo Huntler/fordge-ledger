@@ -18,7 +18,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS projects (
     remix_of      TEXT NOT NULL DEFAULT '[]',
     notes         TEXT NOT NULL DEFAULT '',
     cover_image   TEXT,
+    makerworld_url TEXT,
     scanned_at    TEXT
 );
 

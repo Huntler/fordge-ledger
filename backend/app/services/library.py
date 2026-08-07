@@ -215,6 +215,7 @@ class ProjectDoc:
     created: str = field(default_factory=today)
     tags: list[str] = field(default_factory=list)
     license: str = ""
+    makerworld_url: str = ""
     remix_of: list[RemixSource] = field(default_factory=list)
     models: list[ModelEntry] = field(default_factory=list)
     # Ordered: position in this list is the upload order for publishing.
@@ -232,6 +233,7 @@ class ProjectDoc:
             "created",
             "tags",
             "license",
+            "makerworld_url",
             "remix_of",
             "models",
             "images",
@@ -247,6 +249,7 @@ class ProjectDoc:
             created=str(raw.get("created") or today()),
             tags=[str(t) for t in raw.get("tags") or []],
             license=str(raw.get("license") or ""),
+            makerworld_url=str(raw.get("makerworld_url") or ""),
             remix_of=[
                 RemixSource(
                     url=str(item.get("url", "")),
@@ -312,6 +315,8 @@ class ProjectDoc:
             payload["tags"] = self.tags
         if self.license:
             payload["license"] = self.license
+        if self.makerworld_url:
+            payload["makerworld_url"] = self.makerworld_url
         if self.remix_of:
             payload["remix_of"] = [r.as_dict() for r in self.remix_of]
         if self.models:
@@ -462,13 +467,13 @@ class LibraryService:
             conn.execute(
                 """
                 INSERT INTO projects(id, slug, path, title, status, created, tags, license,
-                                     remix_of, notes, cover_image, scanned_at)
+                                     makerworld_url, remix_of, notes, cover_image, scanned_at)
                 VALUES(:id, :slug, :path, :title, :status, :created, :tags, :license,
-                       :remix_of, :notes, :cover_image, :scanned_at)
+                       :makerworld_url, :remix_of, :notes, :cover_image, :scanned_at)
                 ON CONFLICT(id) DO UPDATE SET
                     slug=excluded.slug, path=excluded.path, title=excluded.title,
                     status=excluded.status, created=excluded.created, tags=excluded.tags,
-                    license=excluded.license, remix_of=excluded.remix_of, notes=excluded.notes,
+                    license=excluded.license, makerworld_url=excluded.makerworld_url, remix_of=excluded.remix_of, notes=excluded.notes,
                     cover_image=excluded.cover_image, scanned_at=excluded.scanned_at
                 """,
                 {
@@ -480,6 +485,7 @@ class LibraryService:
                     "created": doc.created,
                     "tags": json.dumps(doc.tags),
                     "license": doc.license,
+                    "makerworld_url": doc.makerworld_url,
                     "remix_of": json.dumps([r.as_dict() for r in doc.remix_of]),
                     "notes": notes,
                     "cover_image": cover,
@@ -690,6 +696,8 @@ class LibraryService:
             doc.tags = [str(t).strip() for t in changes["tags"] if str(t).strip()]
         if "license" in changes:
             doc.license = str(changes["license"] or "")
+        if "makerworld_url" in changes:
+            doc.makerworld_url = str(changes["makerworld_url"] or "")
         if "cover_image" in changes:
             doc.set_cover(str(changes["cover_image"] or ""))
         if "image_order" in changes:

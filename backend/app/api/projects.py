@@ -104,6 +104,7 @@ def get_project(state: State, project_id: str) -> dict:
     project["documents"] = state.images.list_documents(project_id)
     project["versions"] = state.versions.list_versions(project_id)
     project["prints"] = state.prints.list_prints(project_id)
+    project["makerworld_url"] = project.get("makerworld_url")
     return project
 
 

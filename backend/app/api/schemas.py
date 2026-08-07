@@ -38,6 +38,7 @@ class ProjectUpdate(BaseModel):
     cover_image: str | None = None
     image_order: list[str] | None = None
     remix_of: list[RemixSourceIn] | None = None
+    makerworld_url: str | None = None
     models: list[ModelIn] | None = None
 
     def changes(self) -> dict[str, Any]:

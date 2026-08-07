@@ -316,6 +316,30 @@ def test_non_sliced_upload_is_rejected(client: TestClient, project: dict):
     assert response.status_code == 422
 
 
+def test_delete_print_removes_record_and_files(client: TestClient, project: dict, tmp_path: Path):
+    response = upload_print(client, project["id"], tmp_path)
+    print_id = response.json()["id"]
+
+    # Verify the file is on disk before deletion.
+    prints_dir = library_root(client) / "desk-organizer" / "prints"
+    threemf = list(prints_dir.glob("*.gcode.3mf"))[0]
+    assert threemf.exists()
+
+    # Delete with remove_files=True.
+    response = client.delete(f"/api/prints/{print_id}?remove_files=true")
+    assert response.status_code == 204
+
+    # Record is gone from the database.
+    assert client.get(f"/api/prints/{print_id}").status_code == 404
+    assert not any(
+        p["id"] == print_id
+        for p in client.get(f"/api/projects/{project['id']}").json()["prints"]
+    )
+
+    # Files are also gone from disk.
+    assert not threemf.exists()
+
+
 # ---------------------------------------------------------------- versions
 
 
