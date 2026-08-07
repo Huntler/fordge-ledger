@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Built bundle, copied in from frontend/dist at package time
+backend/app/static/
+
+# App data — the library is the product, but not in the repo
+/data/
+/library/
+*.db
+*.db-wal
+*.db-shm
+
+# Caches
+.pytest_cache/
+.ruff_cache/
+frontend/tsconfig.tsbuildinfo

@@ -1,0 +1,39 @@
+# Production instance. On the NAS, build and run this from an SSH shell:
+#
+#   sudo docker compose up -d --build
+#
+# Set LIBRARY_PATH to wherever your designs actually live. Everything else has
+# a working default, so a bare `docker compose up -d --build` also works and
+# keeps the library in ./library next to this file.
+
+services:
+  forge-ledger:
+    build: .
+    image: forge-ledger:latest
+    container_name: forge-ledger
+    restart: unless-stopped
+    ports:
+      - "${FORGE_PORT:-8000}:8000"
+    volumes:
+      # The one line worth editing. On UGOS a share lives under /volume1/…
+      # e.g. LIBRARY_PATH=/volume1/personal_folder/3D Druck/Custom Designs
+      - "${LIBRARY_PATH:-./library}:/library"
+      # SQLite cache and thumbnails. Rebuildable, but keep it on disk so a
+      # restart does not trigger a full rescan of the whole library.
+      - "${DATA_PATH:-./data}:/data"
+    environment:
+      # Optional: the LAN address of an Ollama or LM Studio box. Can also be
+      # set later in the UI under Settings → Local LLM.
+      FORGE_OLLAMA_URL: "${FORGE_OLLAMA_URL:-}"
+      FORGE_WORKER_THREADS: "${FORGE_WORKER_THREADS:-2}"
+      FORGE_FULL_RESCAN_HOUR: "${FORGE_FULL_RESCAN_HOUR:-3}"
+      FORGE_FILAMENT_COST_PER_KG: "${FORGE_FILAMENT_COST_PER_KG:-22}"
+      # Never seed samples into a real library.
+      FORGE_DEMO_SEED: "false"
+      TZ: "${TZ:-Europe/Berlin}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

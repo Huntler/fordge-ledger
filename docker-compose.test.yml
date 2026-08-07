@@ -1,0 +1,50 @@
+# Throwaway instance for manually clicking through the UI.
+#
+#   container-compose -f docker-compose.test.yml up -d --build
+#   container-compose -f docker-compose.test.yml down
+#   -> http://localhost:8001
+#
+# There are deliberately no bind mounts, so this can never reach your real
+# projects, and every fresh container re-seeds the same four sample projects.
+#
+# Note, checked against Apple's container 1.0.0 + container-compose 1.0.0:
+# container-compose ignores the `tmpfs` key below, so /library and /data sit on
+# the container's own filesystem rather than in RAM. That still throws the data
+# away — a `down` followed by an `up` comes back with the pristine four sample
+# projects, verified — so nothing you do here survives, and nothing reaches the
+# host either way.
+#
+# If you want the mounts genuinely RAM-backed, ./test-instance.sh passes
+# --tmpfs to the runtime directly, which does take effect.
+
+# The directory name has a space in it, so the project name is set explicitly
+# rather than derived from it.
+name: forge-ledger-test
+
+services:
+  # No container_name: container-compose looks the container up by its own
+  # project-prefixed name, and an override makes it time out waiting.
+  forge-ledger-test:
+    build: .
+    image: forge-ledger:test
+    # A crash should surface, not restart-loop into a fresh library.
+    restart: "no"
+    ports:
+      # 8001, so it cannot collide with a real instance on 8000.
+      - "8001:8000"
+    tmpfs:
+      - /library:size=256m,mode=1777
+      - /data:size=256m,mode=1777
+    environment:
+      FORGE_DEMO_SEED: "true"
+      # Faster than the 2s default; nice when poking at files by hand.
+      FORGE_WATCH_DEBOUNCE_SECONDS: "0.5"
+      FORGE_WORKER_THREADS: "2"
+      # Set to point at a LAN Ollama if you want to exercise LLM polish.
+      FORGE_OLLAMA_URL: "${FORGE_OLLAMA_URL:-}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

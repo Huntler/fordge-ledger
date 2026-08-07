@@ -1,0 +1,52 @@
+[project]
+name = "forge-ledger"
+version = "0.1.0"
+description = "Self-hosted manager for 3D printing projects, designs and MakerWorld publishing"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "PyYAML>=6.0",
+    "watchdog>=4.0",
+    "python-multipart>=0.0.9",
+    "Pillow>=10.4",
+    "httpx>=0.27",
+    "mcp>=2.0",
+]
+
+[project.optional-dependencies]
+# Turntable rendering. Heavy and platform-sensitive; the app degrades
+# gracefully to 3MF plate thumbnails when this is not installed.
+render = ["trimesh>=4.4", "numpy>=1.26", "pyrender>=0.1.45"]
+dev = ["pytest>=8.3", "httpx>=0.27", "ruff>=0.6"]
+
+[project.scripts]
+forge-parse3mf = "app.services.threemf:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "BLE", "RUF"]
+ignore = [
+    # FastAPI's Depends/File/Query defaults are calls in argument position by design.
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Holds verbatim Bambu Studio XML; reflowing it would make it a worse fixture.
+"app/demo.py" = ["E501"]
+"tests/conftest.py" = ["E501"]
