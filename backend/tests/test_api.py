@@ -95,6 +95,19 @@ def test_project_filters(client: TestClient, project: dict):
     ]
 
 
+def test_sort_by_status_orders_published_first(client: TestClient, project: dict):
+    # `project` comes in as "idea"; add one of each other status by hand.
+    shelved = client.post("/api/projects", json={"title": "Shelved Thing"}).json()
+    client.patch(f"/api/projects/{shelved['id']}", json={"status": "shelved"})
+    ready = client.post("/api/projects", json={"title": "Ready Thing"}).json()
+    client.patch(f"/api/projects/{ready['id']}", json={"status": "ready"})
+    published = client.post("/api/projects", json={"title": "Published Thing"}).json()
+    client.patch(f"/api/projects/{published['id']}", json={"status": "published"})
+
+    titles = [p["title"] for p in client.get("/api/projects", params={"sort": "status"}).json()]
+    assert titles == ["Published Thing", "Ready Thing", "Desk Organizer", "Shelved Thing"]
+
+
 def test_invalid_status_is_rejected(client: TestClient, project: dict):
     response = client.patch(f"/api/projects/{project['id']}", json={"status": "nonsense"})
     assert response.status_code == 422

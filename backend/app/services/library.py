@@ -61,6 +61,11 @@ RESERVED_DIRS = {"_shared", "_trash", VERSIONS_DIR}
 
 STATUSES = ("idea", "designing", "testing", "ready", "published", "shelved")
 
+# Library sort order: most-done first, so a glance at the grid surfaces what
+# shipped. Distinct from STATUSES (the workflow order used for validation) —
+# shelved is a dead end rather than a step, so it sorts last, not first.
+STATUS_SORT_ORDER = ("published", "ready", "testing", "designing", "idea", "shelved")
+
 CAD_EXTENSIONS = {".step", ".stp", ".f3d", ".scad", ".blend", ".fcstd", ".ipt", ".sldprt"}
 MESH_EXTENSIONS = {".stl", ".obj", ".3mf", ".ply"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}

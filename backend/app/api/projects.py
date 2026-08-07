@@ -6,7 +6,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..services.library import STATUSES
+from ..services.library import STATUS_SORT_ORDER, STATUSES
 from .deps import State, require_project
 from .schemas import AttachFiles, ProjectCreate, ProjectUpdate
 
@@ -40,6 +40,15 @@ def list_projects(
         params.append(f'%"{tag}"%')
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
+    if sort == "status":
+        # Alphabetical status makes no sense to a human — "published" should
+        # lead, not sort after "designing". STATUS_SORT_ORDER is a fixed,
+        # internal tuple, so inlining it is safe; title breaks ties.
+        cases = " ".join(f"WHEN '{s}' THEN {i}" for i, s in enumerate(STATUS_SORT_ORDER))
+        order_by = f"CASE status {cases} ELSE {len(STATUS_SORT_ORDER)} END, title COLLATE NOCASE"
+    else:
+        order_by = f"{sort} COLLATE NOCASE"
+
     rows = state.db.query(
         f"""
         SELECT p.*,
@@ -47,7 +56,7 @@ def list_projects(
                (SELECT COUNT(*) FROM prints  r WHERE r.project_id = p.id) AS print_count,
                (SELECT COUNT(*) FROM files   f WHERE f.project_id = p.id AND f.filed = 0)
                    AS unfiled_count
-        FROM projects p {where} ORDER BY {sort} COLLATE NOCASE
+        FROM projects p {where} ORDER BY {order_by}
         """,
         tuple(params),
     )

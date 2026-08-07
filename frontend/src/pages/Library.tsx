@@ -9,11 +9,12 @@ export default function Library() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [tag, setTag] = useState("");
+  const [sort, setSort] = useState("title");
   const [creating, setCreating] = useState(false);
 
   const { data: projects, isLoading } = useQuery({
-    queryKey: ["projects", { q, status, tag }],
-    queryFn: () => api.projects({ q, status, tag }),
+    queryKey: ["projects", { q, status, tag, sort }],
+    queryFn: () => api.projects({ q, status, tag, sort }),
   });
   const { data: tags } = useQuery({ queryKey: ["tags"], queryFn: api.tags });
   const { data: statuses } = useQuery({
@@ -38,6 +39,12 @@ export default function Library() {
               {s}
             </option>
           ))}
+        </select>
+        <select className="input max-w-[12rem]" value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="title">Sort: Title</option>
+          <option value="status">Sort: Status (published first)</option>
+          <option value="created">Sort: Created</option>
+          <option value="scanned_at">Sort: Last scanned</option>
         </select>
         <button className="btn btn-primary" onClick={() => setCreating(true)}>
           New project
