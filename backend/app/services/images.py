@@ -179,6 +179,70 @@ class ImageService:
         bus.publish("model.source_added", {"project_id": project_id, "rel_path": rel})
         return rel
 
+    def write_model_source(self, project_id: str, rel_path: str, text: str) -> None:
+        """Overwrite an existing `.scad` source in place — the in-app editor's Save.
+
+        Unlike add_model_source, this never renames or dedups: it edits the file
+        that's already there instead of adding a new one. Scoped to `.scad`
+        specifically — the other CAD_EXTENSIONS are binary formats with no
+        business being pushed through a raw-text overwrite endpoint.
+        """
+        directory = self.library.dir_for_id(project_id)
+        if directory is None:
+            raise KeyError(project_id)
+
+        if Path(rel_path).suffix.lower() != ".scad":
+            raise ValueError("only .scad sources can be edited in place")
+        target = safe_join(directory, rel_path)
+        if not target.is_relative_to(directory / MODEL_SOURCES_DIR):
+            raise ValueError("not a model source path")
+        if not target.is_file():
+            raise ValueError("file not found")
+
+        target.write_text(text, encoding="utf-8")
+        self.library.scan_project_dir(directory)
+        bus.publish("model.source_added", {"project_id": project_id, "rel_path": rel_path})
+
+    def export_model_stl(self, project_id: str, rel_path: str, data: bytes) -> str:
+        """Export the editor's compiled STL next to its `.scad` source.
+
+        Same name, `.stl` extension — a re-export always overwrites the
+        previous one, the same "the file is the record" rule as Save.
+        """
+        directory = self.library.dir_for_id(project_id)
+        if directory is None:
+            raise KeyError(project_id)
+
+        if Path(rel_path).suffix.lower() != ".scad":
+            raise ValueError("only .scad sources can be exported")
+        source = safe_join(directory, rel_path)
+        if not source.is_relative_to(directory / MODEL_SOURCES_DIR):
+            raise ValueError("not a model source path")
+        if not source.is_file():
+            raise ValueError("source file not found")
+
+        target = source.with_suffix(".stl")
+        target.write_bytes(data)
+        rel = target.relative_to(directory).as_posix()
+
+        self.library.scan_project_dir(directory)
+        bus.publish("model.exported", {"project_id": project_id, "rel_path": rel})
+        return rel
+
+    def delete_model_source(self, project_id: str, rel_path: str) -> None:
+        """Delete a file from models/sources/ — any kind, not just `.scad`."""
+        directory = self.library.dir_for_id(project_id)
+        if directory is None:
+            raise KeyError(project_id)
+
+        target = safe_join(directory, rel_path)
+        if not target.is_relative_to(directory / MODEL_SOURCES_DIR):
+            raise ValueError("not a model source path")
+
+        target.unlink(missing_ok=True)
+        self.library.scan_project_dir(directory)
+        bus.publish("model.source_deleted", {"project_id": project_id, "rel_path": rel_path})
+
     def add_document(self, project_id: str, filename: str, data: bytes) -> str:
         """Store a PDF, datasheet or other attachment in docs/, untouched."""
         directory = self.library.dir_for_id(project_id)

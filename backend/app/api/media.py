@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from ..services.images import EXPORT_PRESETS, render_backend_available
@@ -85,6 +85,41 @@ async def upload_model_source(state: State, project_id: str, file: UploadFile = 
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"rel_path": rel_path}
+
+
+@router.put("/models/sources/content", status_code=204)
+async def write_model_source(
+    state: State, project_id: str, rel_path: str, request: Request
+) -> None:
+    """Save from the in-browser SCAD editor — overwrites an existing file in place."""
+    require_project(state, project_id)
+    try:
+        state.images.write_model_source(project_id, rel_path, (await request.body()).decode("utf-8"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/models/sources/export", status_code=201)
+async def export_model_source_stl(
+    state: State, project_id: str, rel_path: str, request: Request
+) -> dict:
+    """Export the editor's compiled STL from a .scad source, same name, overwriting."""
+    require_project(state, project_id)
+    try:
+        exported = state.images.export_model_stl(project_id, rel_path, await request.body())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"rel_path": exported}
+
+
+@router.delete("/models/sources", status_code=204)
+def delete_model_source(state: State, project_id: str, rel_path: str) -> None:
+    """Delete a file from models/sources/ — the explorer's and Sources tab's ✕."""
+    require_project(state, project_id)
+    try:
+        state.images.delete_model_source(project_id, rel_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/documents")

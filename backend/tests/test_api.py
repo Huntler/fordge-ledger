@@ -554,6 +554,129 @@ def test_polish_is_unavailable_without_a_server(client: TestClient):
     assert client.post("/api/llm/polish", json={"text": "hello"}).status_code == 503
 
 
+# ------------------------------------------------------------- model sources
+
+
+def test_scad_source_can_be_edited_in_place(client: TestClient, project: dict):
+    upload = client.post(
+        f"/api/projects/{project['id']}/models/sources",
+        files={"file": ("clip.scad", b"cube([10, 10, 10]);", "text/plain")},
+    )
+    assert upload.status_code == 201
+    rel_path = upload.json()["rel_path"]
+    assert rel_path == "models/sources/clip.scad"
+
+    edit = client.put(
+        f"/api/projects/{project['id']}/models/sources/content",
+        params={"rel_path": rel_path},
+        content=b"cube([20, 20, 20]);",
+    )
+    assert edit.status_code == 204
+
+    # Edited in place — same path, new content, no sibling file created.
+    saved = client.get(f"/api/projects/{project['id']}/file", params={"rel_path": rel_path})
+    assert saved.text == "cube([20, 20, 20]);"
+    sources_dir = library_root(client) / "desk-organizer" / "models" / "sources"
+    assert [p.name for p in sources_dir.iterdir()] == ["clip.scad"]
+
+
+def test_editing_a_binary_cad_source_is_rejected(client: TestClient, project: dict):
+    upload = client.post(
+        f"/api/projects/{project['id']}/models/sources",
+        files={"file": ("body.step", b"ISO-10303-21;", "application/octet-stream")},
+    )
+    rel_path = upload.json()["rel_path"]
+
+    edit = client.put(
+        f"/api/projects/{project['id']}/models/sources/content",
+        params={"rel_path": rel_path},
+        content=b"not a step file",
+    )
+    assert edit.status_code == 422
+
+
+def test_editing_a_path_outside_model_sources_is_rejected(client: TestClient, project: dict):
+    # Right extension, wrong folder — must not let the editor write anywhere else.
+    edit = client.put(
+        f"/api/projects/{project['id']}/models/sources/content",
+        params={"rel_path": "sneaky.scad"},
+        content=b"cube([1, 1, 1]);",
+    )
+    assert edit.status_code == 422
+    assert not (library_root(client) / "desk-organizer" / "sneaky.scad").exists()
+
+
+def test_exporting_scad_writes_an_stl_next_to_it_and_overwrites(client: TestClient, project: dict):
+    upload = client.post(
+        f"/api/projects/{project['id']}/models/sources",
+        files={"file": ("clip.scad", b"cube([10, 10, 10]);", "text/plain")},
+    )
+    rel_path = upload.json()["rel_path"]
+
+    export = client.post(
+        f"/api/projects/{project['id']}/models/sources/export",
+        params={"rel_path": rel_path},
+        content=b"solid clip\nendsolid clip\n",
+    )
+    assert export.status_code == 201
+    assert export.json()["rel_path"] == "models/sources/clip.stl"
+
+    stl_path = library_root(client) / "desk-organizer" / "models" / "sources" / "clip.stl"
+    assert stl_path.read_bytes() == b"solid clip\nendsolid clip\n"
+
+    # Re-exporting overwrites in place — no clip-2.stl.
+    client.post(
+        f"/api/projects/{project['id']}/models/sources/export",
+        params={"rel_path": rel_path},
+        content=b"solid clip v2\nendsolid clip v2\n",
+    )
+    sources_dir = library_root(client) / "desk-organizer" / "models" / "sources"
+    assert sorted(p.name for p in sources_dir.iterdir()) == ["clip.scad", "clip.stl"]
+    assert stl_path.read_bytes() == b"solid clip v2\nendsolid clip v2\n"
+
+
+def test_exporting_a_missing_source_is_rejected(client: TestClient, project: dict):
+    export = client.post(
+        f"/api/projects/{project['id']}/models/sources/export",
+        params={"rel_path": "models/sources/ghost.scad"},
+        content=b"solid\nendsolid\n",
+    )
+    assert export.status_code == 422
+
+
+def test_deleting_a_model_source_removes_it(client: TestClient, project: dict):
+    upload = client.post(
+        f"/api/projects/{project['id']}/models/sources",
+        files={"file": ("clip.scad", b"cube([10, 10, 10]);", "text/plain")},
+    )
+    rel_path = upload.json()["rel_path"]
+
+    response = client.delete(
+        f"/api/projects/{project['id']}/models/sources", params={"rel_path": rel_path}
+    )
+    assert response.status_code == 204
+
+    sources_dir = library_root(client) / "desk-organizer" / "models" / "sources"
+    assert not (sources_dir / "clip.scad").exists()
+    assert client.get(f"/api/projects/{project['id']}/file", params={"rel_path": rel_path}).status_code == 404
+
+
+def test_deleting_a_missing_model_source_is_a_no_op(client: TestClient, project: dict):
+    response = client.delete(
+        f"/api/projects/{project['id']}/models/sources",
+        params={"rel_path": "models/sources/ghost.scad"},
+    )
+    assert response.status_code == 204
+
+
+def test_deleting_outside_model_sources_is_rejected(client: TestClient, project: dict):
+    response = client.delete(
+        f"/api/projects/{project['id']}/models/sources", params={"rel_path": "notes.md"}
+    )
+    assert response.status_code == 400
+    assert (library_root(client) / "desk-organizer" / "notes.md").exists()
+
+
 # ------------------------------------------------------------------ images
 
 

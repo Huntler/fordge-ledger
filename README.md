@@ -418,6 +418,42 @@ file does not sink the batch.
 CAD sources show up as **unfiled** until you attach them to a model, which is
 the same orphan-detection rule as everywhere else: nothing is absorbed silently.
 
+### The in-browser SCAD editor
+
+Any `.scad` file under `models/sources/` has an **Edit** action, and Sources
+has a **+ New .scad** button — both open the same editor with a live 3D
+preview. The top-nav **Editor** page opens it library-wide instead: a file
+explorer lists every project as a folder with its `.scad` sources underneath
+(**+** next to a project name starts a new one there), and picking a file
+loads it into the same editor next to the tree. OpenSCAD itself runs as
+WebAssembly in a Web Worker (`openscad-wasm`), so none of this needs a server
+round-trip and it works offline. **Save** overwrites the file in place (a new
+source is created via the same upload path as drag-and-drop, then edits go in
+place from there on); **Export STL** compiles the current code straight to an
+`.stl` next to the source, same name, always overwriting the previous export.
+
+**Known limitation: reusing one WASM instance across renders is unreliable.**
+Verified by hand: a *second* `callMain()` call on the same OpenSCAD module
+instance reliably fails with an opaque native crash (a bare stringified
+pointer, e.g. `1124712`, instead of a real error message) — even re-rendering
+the exact same plain, non-boolean cube twice in a row. It is not specific to
+CSG booleans (`difference()`/`union()`/`intersection()`); something in the
+module's internal geometry cache does not survive being reused at all. The
+fix is a fresh module instance per render (see `openscad.worker.ts`), which
+avoids the crash entirely at the cost of paying WASM instantiation again on
+every keystroke-triggered render — noticeably slower than editors that keep
+one instance alive, but reliable. If a render still crashes with a bare
+number, it now means something else (degenerate geometry, an actual sandbox
+resource limit), and the editor shows a plain-language hint for that case.
+The prebuilt `openscad-wasm` package also isn't compiled with the Manifold
+kernel (confirmed via its own stderr:
+`Ignoring request to enable unknown feature 'manifold'`), so CSG performance
+in general stays on OpenSCAD's older CGAL kernel — slower, though no longer
+the reliability problem above. Getting Manifold means sourcing or building an
+`openscad-wasm` compiled with `--enable=manifold` support, which
+[openscad-playground](https://github.com/openscad/openscad-playground) does
+via its own Docker/Emscripten build pipeline — out of scope here for now.
+
 ---
 
 ## Configuration

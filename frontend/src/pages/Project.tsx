@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
   fileUrl,
+  readTextFile,
   thumbUrl,
   type ImageVariant,
   type Project,
@@ -12,7 +13,13 @@ import {
   type SourceFile,
 } from "../api";
 import { DropZone } from "../components/DropZone";
+import { NEW_SCAD_TEMPLATE } from "../lib/scadTemplate";
+
+// CodeMirror + three.js + the ~14MB openscad-wasm worker only load when a
+// .scad panel actually opens — everyone else's page weight is unaffected.
+const ScadEditor = lazy(() => import("../components/ScadEditor").then((m) => ({ default: m.ScadEditor })));
 import {
+  ConfirmDialog,
   EmptyState,
   Modal,
   Spinner,
@@ -958,6 +965,8 @@ function ImagesTab({ project }: { project: Project }) {
 function SourcesTab({ project }: { project: Project }) {
   const queryClient = useQueryClient();
   const notify = useUi((s) => s.notify);
+  const [editing, setEditing] = useState<{ relPath: string | null; code: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<SourceFile | null>(null);
 
   const { data: sources } = useQuery({
     queryKey: ["sources", project.id],
@@ -976,6 +985,28 @@ function SourcesTab({ project }: { project: Project }) {
     onError: (error: Error) => notify(error.message, "error"),
   });
 
+  const removeSource = useMutation({
+    mutationFn: (file: SourceFile) => api.deleteModelSource(project.id, file.rel_path),
+    onSuccess: (_, file) => {
+      queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["sources", project.id] });
+      notify(`Deleted ${file.rel_path.slice("models/sources/".length)}`, "success");
+      setPendingDelete(null);
+      // The deleted file may be open in the editor — close it rather than
+      // leaving Save pointed at a path that no longer exists.
+      setEditing((e) => (e?.relPath === file.rel_path ? null : e));
+    },
+    onError: (error: Error) => notify(error.message, "error"),
+  });
+
+  const openScad = async (file: SourceFile) => {
+    try {
+      setEditing({ relPath: file.rel_path, code: await readTextFile(project.id, file.rel_path) });
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), "error");
+    }
+  };
+
   return (
     <div className="space-y-5">
       <DropZone
@@ -993,6 +1024,17 @@ function SourcesTab({ project }: { project: Project }) {
           hint="The files you actually edit. Meshes stay in their own model folders."
           project={project}
           files={sources?.models ?? []}
+          onEditScad={openScad}
+          onDelete={setPendingDelete}
+          action={
+            <button
+              type="button"
+              className="btn btn-ghost text-xs"
+              onClick={() => setEditing({ relPath: null, code: NEW_SCAD_TEMPLATE })}
+            >
+              + New .scad
+            </button>
+          }
         />
         <SourceList
           title="Image sources"
@@ -1002,6 +1044,32 @@ function SourcesTab({ project }: { project: Project }) {
           files={sources?.images ?? []}
         />
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete file"
+        message={`Delete "${pendingDelete?.rel_path.slice("models/sources/".length)}"? This removes it from disk — there is no undo.`}
+        onConfirm={() => pendingDelete && removeSource.mutate(pendingDelete)}
+        onCancel={() => setPendingDelete(null)}
+      />
+
+      {editing && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
+              <Spinner label="Loading OpenSCAD…" />
+            </div>
+          }
+        >
+          <ScadEditor
+            projectId={project.id}
+            relPath={editing.relPath}
+            initialCode={editing.code}
+            onClose={() => setEditing(null)}
+            onSaved={(relPath) => setEditing({ relPath, code: editing.code })}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -1012,16 +1080,25 @@ function SourceList({
   hint,
   project,
   files,
+  onEditScad,
+  onDelete,
+  action,
 }: {
   title: string;
   folder: string;
   hint: string;
   project: Project;
   files: SourceFile[];
+  onEditScad?: (file: SourceFile) => void;
+  onDelete?: (file: SourceFile) => void;
+  action?: ReactNode;
 }) {
   return (
     <section className="card p-4">
-      <h2 className="font-medium">{title}</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="font-medium">{title}</h2>
+        {action}
+      </div>
       <p className="text-xs text-slate-500 mt-1 mb-3">
         <code className="font-mono">{folder}</code> — {hint}
       </p>
@@ -1030,7 +1107,7 @@ function SourceList({
       ) : (
         <ul className="space-y-1">
           {files.map((file) => (
-            <li key={file.rel_path} className="flex items-center gap-2 text-sm">
+            <li key={file.rel_path} className="flex items-center gap-2 text-sm group">
               <a
                 className="font-mono text-xs text-slate-300 hover:text-accent truncate"
                 href={fileUrl(project.id, file.rel_path)}
@@ -1043,7 +1120,26 @@ function SourceList({
                   unfiled
                 </span>
               )}
-              <span className="ml-auto text-xs text-slate-600">{formatSize(file.size)}</span>
+              {onEditScad && file.rel_path.toLowerCase().endsWith(".scad") && (
+                <button
+                  type="button"
+                  className="btn btn-ghost text-xs px-1 py-0"
+                  onClick={() => onEditScad(file)}
+                >
+                  Edit
+                </button>
+              )}
+              <span className="ml-auto text-xs text-slate-600 shrink-0">{formatSize(file.size)}</span>
+              {onDelete && (
+                <button
+                  type="button"
+                  className="btn btn-ghost text-xs px-1 py-0 opacity-0 group-hover:opacity-100 hover:text-rose-400 shrink-0"
+                  title="Delete"
+                  onClick={() => onDelete(file)}
+                >
+                  ✕
+                </button>
+              )}
             </li>
           ))}
         </ul>

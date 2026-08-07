@@ -340,6 +340,32 @@ export const api = {
   images: (projectId: string) => request<ProjectImage[]>(`/api/projects/${projectId}/images`),
   sources: (projectId: string) => request<ProjectSources>(`/api/projects/${projectId}/sources`),
 
+  uploadModelSource: (projectId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ rel_path: string }>(`/api/projects/${projectId}/models/sources`, {
+      method: "POST",
+      body: form,
+    });
+  },
+  /** Save from the in-browser SCAD editor — overwrites an existing source in place. */
+  writeModelSource: (projectId: string, relPath: string, text: string) =>
+    request<void>(
+      `/api/projects/${projectId}/models/sources/content?rel_path=${encodeURIComponent(relPath)}`,
+      { method: "PUT", headers: { "Content-Type": "text/plain" }, body: text },
+    ),
+  /** Compiled STL next to its .scad source, same name — always overwrites. */
+  exportModelStl: (projectId: string, relPath: string, stl: string) =>
+    request<{ rel_path: string }>(
+      `/api/projects/${projectId}/models/sources/export?rel_path=${encodeURIComponent(relPath)}`,
+      { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: stl },
+    ),
+  deleteModelSource: (projectId: string, relPath: string) =>
+    request<void>(
+      `/api/projects/${projectId}/models/sources?rel_path=${encodeURIComponent(relPath)}`,
+      { method: "DELETE" },
+    ),
+
   documents: (projectId: string) =>
     request<ProjectDocument[]>(`/api/projects/${projectId}/documents`),
   uploadDocument: (projectId: string, file: File) => {
@@ -488,3 +514,10 @@ export const fileUrl = (projectId: string, relPath: string) =>
 
 export const thumbUrl = (projectId: string, relPath: string) =>
   `/api/projects/${projectId}/thumb?rel_path=${encodeURIComponent(relPath)}`;
+
+/** Raw text content of a project file — for loading a .scad source into the editor. */
+export async function readTextFile(projectId: string, relPath: string): Promise<string> {
+  const response = await fetch(fileUrl(projectId, relPath));
+  if (!response.ok) throw new ApiError(`Could not load ${relPath}`, response.status);
+  return response.text();
+}

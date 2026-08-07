@@ -8,11 +8,13 @@ import Library from "./pages/Library";
 import ProjectPage from "./pages/Project";
 import PrintBoard from "./pages/PrintBoard";
 import PublishPage from "./pages/Publish";
+import EditorPage from "./pages/Editor";
 import SettingsPage from "./pages/Settings";
 
 const NAV = [
   { to: "/library", label: "Library" },
   { to: "/prints", label: "Prints" },
+  { to: "/editor", label: "Editor" },
   { to: "/settings", label: "Settings" },
 ];
 
@@ -73,6 +75,7 @@ export default function App() {
           <Route path="/projects/:id" element={<ProjectPage />} />
           <Route path="/projects/:id/publish" element={<PublishPage />} />
           <Route path="/prints" element={<PrintBoard />} />
+          <Route path="/editor" element={<EditorPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/library" replace />} />
         </Routes>

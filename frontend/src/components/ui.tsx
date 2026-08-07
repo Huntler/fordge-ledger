@@ -117,6 +117,41 @@ export function Modal({
   );
 }
 
+/** Proceed-warning for a destructive action that has no undo — a hover ✕ alone isn't enough. */
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Delete",
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal open={open} title={title} onClose={onCancel}>
+      <p className="text-sm text-slate-300">{message}</p>
+      <div className="flex justify-end gap-2 pt-4">
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn border-rose-500/40 text-rose-300 hover:bg-rose-500/10"
+          onClick={onConfirm}
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 /** Copy button for the publish workspace — the whole point is pasting into MakerWorld. */
 export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
