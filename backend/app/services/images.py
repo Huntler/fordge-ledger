@@ -79,12 +79,18 @@ class ImageService:
         return [dict(r) | {"is_cover": r["rel_path"] == cover} for r in rows]
 
     def list_sources(self, project_id: str) -> dict[str, list[dict[str, Any]]]:
-        """The editable originals: image sources and CAD sources."""
+        """The editable originals: image sources and CAD sources.
+
+        Excludes models/sources/tools/ — copies ToolsService.copy_into_project
+        places there are an implementation detail (what a `use <tools/...>;`
+        line resolves to on disk), not a source to browse/open/delete here.
+        """
         rows = self.db.query(
             "SELECT rel_path, kind, size, mtime, filed FROM files "
-            "WHERE project_id = ? AND (kind = 'image_source' OR rel_path LIKE ?) "
+            "WHERE project_id = ? AND (kind = 'image_source' "
+            "OR (rel_path LIKE ? AND rel_path NOT LIKE ?)) "
             "ORDER BY rel_path",
-            (project_id, f"{MODEL_SOURCES_DIR}/%"),
+            (project_id, f"{MODEL_SOURCES_DIR}/%", f"{MODEL_SOURCES_DIR}/tools/%"),
         )
         images, models = [], []
         for row in rows:

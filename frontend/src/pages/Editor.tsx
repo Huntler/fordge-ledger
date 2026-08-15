@@ -1,5 +1,7 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { FileExplorer, type ScadSelection } from "../components/FileExplorer";
+import { ScadToolbar } from "../components/ScadToolbar";
+import type { ScadWorkspaceHandle } from "../components/ScadWorkspace";
 import { EmptyState, Spinner } from "../components/ui";
 
 // CodeMirror + three.js + the ~14MB openscad-wasm worker only load once a
@@ -15,6 +17,8 @@ const ScadWorkspace = lazy(() =>
  */
 export default function EditorPage() {
   const [selection, setSelection] = useState<ScadSelection | null>(null);
+  const [addedTools, setAddedTools] = useState<Set<string>>(new Set());
+  const workspaceRef = useRef<ScadWorkspaceHandle>(null);
 
   return (
     <div className="flex gap-4 h-[calc(100vh-8.5rem)]">
@@ -28,26 +32,35 @@ export default function EditorPage() {
         }
       />
 
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 flex flex-col gap-4">
         {selection ? (
-          <Suspense
-            fallback={
-              <div className="card h-full flex items-center justify-center">
-                <Spinner label="Loading OpenSCAD…" />
-              </div>
-            }
-          >
-            <ScadWorkspace
-              // Force a remount on file switch — internal editor state seeds
-              // from initialCode once at mount and never re-syncs from props.
-              key={`${selection.projectId}:${selection.relPath ?? "new"}`}
-              projectId={selection.projectId}
-              relPath={selection.relPath}
-              initialCode={selection.code}
-              onSaved={(relPath) => setSelection((s) => (s ? { ...s, relPath } : s))}
-              className="h-full"
+          <>
+            <Suspense
+              fallback={
+                <div className="card flex-1 min-h-0 flex items-center justify-center">
+                  <Spinner label="Loading OpenSCAD…" />
+                </div>
+              }
+            >
+              <ScadWorkspace
+                // Force a remount on file switch — internal editor state seeds
+                // from initialCode once at mount and never re-syncs from props.
+                key={`${selection.projectId}:${selection.relPath ?? "new"}`}
+                ref={workspaceRef}
+                projectId={selection.projectId}
+                relPath={selection.relPath}
+                initialCode={selection.code}
+                onSaved={(relPath) => setSelection((s) => (s ? { ...s, relPath } : s))}
+                onToolsChanged={(names) => setAddedTools(new Set(names))}
+                className="flex-1 min-h-0"
+              />
+            </Suspense>
+            <ScadToolbar
+              className="shrink-0"
+              addedTools={addedTools}
+              onToggle={(name) => workspaceRef.current?.toggleTool(name)}
             />
-          </Suspense>
+          </>
         ) : (
           <div className="card h-full flex items-center justify-center">
             <EmptyState

@@ -177,6 +177,12 @@ export interface MarkdownDoc {
   body: string;
 }
 
+export interface Tool {
+  name: string;
+  body: string;
+  has_icon: boolean;
+}
+
 export interface Health {
   status: string;
   library_path: string;
@@ -467,6 +473,29 @@ export const api = {
   snippets: () => request<MarkdownDoc[]>("/api/snippets"),
   saveSnippet: (doc: MarkdownDoc) =>
     request<MarkdownDoc>("/api/snippets", { method: "PUT", body: json(doc) }),
+
+  tools: () => request<Tool[]>("/api/tools"),
+  /** icon omitted keeps the existing one (if any); pass null to leave it untouched too. */
+  saveTool: (name: string, body: string, icon?: File | null) => {
+    const form = new FormData();
+    form.append("name", name);
+    form.append("body", body);
+    if (icon) form.append("icon", icon);
+    return request<Tool>("/api/tools", { method: "PUT", body: form });
+  },
+  deleteTool: (name: string) =>
+    request<void>(`/api/tools/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  toolIconUrl: (name: string) => `/api/tools/${encodeURIComponent(name)}/icon`,
+  /** Physically copies the tool's .scad into the project's models/sources/tools/. */
+  addToolToProject: (projectId: string, name: string) =>
+    request<{ rel_path: string }>(
+      `/api/tools/${encodeURIComponent(name)}/projects/${projectId}`,
+      { method: "POST" },
+    ),
+  removeToolFromProject: (projectId: string, name: string) =>
+    request<void>(`/api/tools/${encodeURIComponent(name)}/projects/${projectId}`, {
+      method: "DELETE",
+    }),
 
   publishDraft: (projectId: string) =>
     request<PublishDraft>(`/api/projects/${projectId}/publish`),

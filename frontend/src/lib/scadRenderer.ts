@@ -50,12 +50,22 @@ export class ScadRenderer {
     return this.worker;
   }
 
-  render(code: string, quality: RenderQuality = "medium"): Promise<string> {
+  /**
+   * `files` are extra virtual-FS entries the code may `use`/`include` —
+   * currently just referenced tool snippets, keyed by their path
+   * (`tools/<slug>.scad`), written in before compiling. See
+   * openscad.worker.ts.
+   */
+  render(
+    code: string,
+    quality: RenderQuality = "medium",
+    files: Record<string, string> = {},
+  ): Promise<string> {
     const worker = this.ensureWorker();
     const id = this.nextId++;
     return new Promise<string>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      worker.postMessage({ id, code, quality });
+      worker.postMessage({ id, code, quality, files });
     });
   }
 

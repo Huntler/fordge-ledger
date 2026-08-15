@@ -13,6 +13,7 @@ from .services.llm import LlmService
 from .services.polish_runs import PolishRunner
 from .services.prints import PrintService
 from .services.publish import PublishService
+from .services.tools import ToolsService
 from .services.versions import VersionService
 from .services.watcher import LibraryWatcher
 
@@ -35,6 +36,7 @@ class AppState:
             self.settings, self.db, self.library, self.prints, self.images
         )
         self.llm = LlmService(self.settings, self.library.root)
+        self.tools = ToolsService(self.library)
         self.polish_runs = PolishRunner()
 
         self.jobs = JobQueue(self.db, self.settings.worker_threads)
@@ -87,6 +89,7 @@ class AppState:
         if self.settings.demo_seed:
             self.seed_demo()
         self.publish.ensure_defaults()
+        self.tools.ensure_defaults()
         self.jobs.start()
         # Boot scan is synchronous-ish via the queue, so the UI has data quickly
         # without blocking the server from accepting connections.

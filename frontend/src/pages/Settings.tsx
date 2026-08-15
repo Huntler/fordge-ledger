@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type MarkdownDoc } from "../api";
 import { LlmSettings } from "../components/LlmSettings";
+import { ToolsSettings } from "../components/ToolsSettings";
 import { Spinner } from "../components/ui";
 import { useUi } from "../store";
 
@@ -70,6 +71,8 @@ export default function SettingsPage() {
         list={api.snippets}
         save={api.saveSnippet}
       />
+
+      <ToolsSettings />
 
       <section className="card p-4">
         <h2 className="font-medium mb-3">Recent jobs</h2>

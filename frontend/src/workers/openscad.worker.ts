@@ -63,9 +63,18 @@ async function createInstance() {
 const FN_BY_QUALITY = { low: 16, medium: 64, high: 128 };
 
 self.onmessage = async (event) => {
-  const { id, code, quality } = event.data;
+  const { id, code, quality, files } = event.data;
   try {
     const instance = await createInstance();
+    // Referenced tool snippets (`use <tools/slug.scad>;`, see
+    // ScadWorkspace.tsx) — written into the virtual FS before /input.scad so
+    // those references resolve. Verified by hand that FS.mkdirTree + a
+    // matching writeFile is enough for `use <tools/x.scad>;` to work.
+    for (const [path, contents] of Object.entries(files ?? {})) {
+      const dir = path.slice(0, path.lastIndexOf("/"));
+      if (dir) instance.FS.mkdirTree(`/${dir}`);
+      instance.FS.writeFile(`/${path}`, contents);
+    }
     instance.FS.writeFile("/input.scad", code);
     const fn = FN_BY_QUALITY[quality] ?? FN_BY_QUALITY.medium;
     instance.callMain([

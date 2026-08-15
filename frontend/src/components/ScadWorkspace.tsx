@@ -1,13 +1,62 @@
-import { useEffect, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import CodeMirror from "@uiw/react-codemirror";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
 import { lintGutter } from "@codemirror/lint";
 import { StlViewer } from "react-stl-viewer";
 import { openscad } from "../lang-openscad";
-import { api } from "../api";
+import { api, type Tool } from "../api";
 import { useUi } from "../store";
 import { ScadRenderer, type RenderQuality } from "../lib/scadRenderer";
+
+// Matches a `use <tools/slug.scad>;` or `include <tools/slug.scad>;` line —
+// how a referenced tool (see ScadToolbar) gets resolved at render time. Not
+// a real OpenSCAD parser, just enough to find what to write into the
+// worker's virtual FS; matches the app's existing "good enough" lightweight
+// parsing elsewhere (e.g. the hand-rolled Markdown renderer in ui.tsx).
+const TOOL_USE_RE = /^[ \t]*(?:use|include)[ \t]*<[ \t]*tools\/([a-z0-9-]+)\.scad[ \t]*>[ \t]*;?[ \t]*$/gm;
+
+function extractReferencedToolNames(code: string): Set<string> {
+  const names = new Set<string>();
+  for (const match of code.matchAll(TOOL_USE_RE)) names.add(match[1]);
+  return names;
+}
+
+function extractToolFiles(code: string, tools: Tool[]): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const name of extractReferencedToolNames(code)) {
+    const tool = tools.find((t) => t.name === name);
+    if (tool) files[`tools/${name}.scad`] = tool.body;
+  }
+  return files;
+}
+
+// Where a new `use <tools/...>;` line should land: after any leading block
+// of use/include lines (so repeated tool references group together in
+// click order), before the first line of real code.
+function leadingUseBlockEnd(code: string): number {
+  const USE_LINE = /^[ \t]*(?:use|include)[ \t]*<[^>]+>[ \t]*;?[ \t]*$/;
+  let offset = 0;
+  for (const line of code.split("\n")) {
+    if (!USE_LINE.test(line)) break;
+    offset += line.length + 1;
+  }
+  return offset;
+}
+
+/** The `{from, to}` span of an exact line (including its trailing newline,
+ * clamped to the document length if it's the last line and has none) — used
+ * to remove a `use <tools/...>;` line precisely when a tool is toggled off. */
+function findLineRange(code: string, line: string): { from: number; to: number } | null {
+  let offset = 0;
+  for (const current of code.split("\n")) {
+    if (current === line) {
+      return { from: offset, to: Math.min(offset + current.length + 1, code.length) };
+    }
+    offset += current.length + 1;
+  }
+  return null;
+}
 
 // A native WASM crash (rather than OpenSCAD reporting a real compile error)
 // surfaces as a bare stringified pointer instead of a message, e.g.
@@ -40,22 +89,35 @@ function explainRenderError(message: string): string {
  * works both full-screen (ScadEditor's modal) and embedded in a page column
  * (the Editor page's explorer layout).
  */
-export function ScadWorkspace({
-  projectId,
-  relPath,
-  initialCode,
-  onSaved,
-  onClose,
-  className = "",
-}: {
-  projectId: string;
-  relPath: string | null;
-  initialCode: string;
-  onSaved: (relPath: string) => void;
-  /** Shows a Close button when provided — omit for an embedded, page-level workspace. */
-  onClose?: () => void;
-  className?: string;
-}) {
+export interface ScadWorkspaceHandle {
+  /** Toggles a tool's reference: adds `use <tools/<toolName>.scad>;` (after
+   * any existing leading use/include lines) and copies the tool's .scad
+   * into this project's models/sources/tools/ if it isn't referenced yet,
+   * or removes both the line and the copy if it already is — how the
+   * Editor page's tools toolbar makes a tool's modules/functions callable
+   * without inlining its body. */
+  toggleTool: (toolName: string) => void;
+}
+
+export const ScadWorkspace = forwardRef<
+  ScadWorkspaceHandle,
+  {
+    projectId: string;
+    relPath: string | null;
+    initialCode: string;
+    onSaved: (relPath: string) => void;
+    /** Shows a Close button when provided — omit for an embedded, page-level workspace. */
+    onClose?: () => void;
+    /** Fired whenever the set of tools referenced by the buffer changes
+     * (toggled via the handle, or hand-edited) — lets the toolbar highlight
+     * which tools are currently added. */
+    onToolsChanged?: (toolNames: string[]) => void;
+    className?: string;
+  }
+>(function ScadWorkspace(
+  { projectId, relPath, initialCode, onSaved, onClose, onToolsChanged, className = "" },
+  ref,
+) {
   const notify = useUi((s) => s.notify);
   const queryClient = useQueryClient();
 
@@ -70,6 +132,63 @@ export function ScadWorkspace({
   const stlUrlRef = useRef<string | null>(null);
   const lastStlRef = useRef<string | null>(null);
   const renderIdRef = useRef(0);
+  const cmRef = useRef<ReactCodeMirrorRef>(null);
+  const { data: tools } = useQuery({ queryKey: ["tools"], queryFn: api.tools });
+
+  // The physical copy-in/remove side of toggling a tool (see the handle
+  // below) — a real file under models/sources/tools/, not just the
+  // worker's virtual FS injection at render time, so a saved source still
+  // resolves its `use <tools/...>;` lines outside this app. Optimistic:
+  // the buffer edit happens immediately regardless of how these settle,
+  // same as every other mutation in this file (Save, Export).
+  const addTool = useMutation({
+    mutationFn: (toolName: string) => api.addToolToProject(projectId, toolName),
+    onError: (error: Error) => notify(error.message, "error"),
+  });
+  const removeTool = useMutation({
+    mutationFn: (toolName: string) => api.removeToolFromProject(projectId, toolName),
+    onError: (error: Error) => notify(error.message, "error"),
+  });
+
+  useImperativeHandle(ref, () => ({
+    toggleTool(toolName: string) {
+      const line = `use <tools/${toolName}.scad>;`;
+      const view = cmRef.current?.view;
+      const currentText = view ? view.state.doc.toString() : code;
+      const referenced = currentText.split("\n").includes(line);
+
+      if (referenced) {
+        const range = findLineRange(currentText, line);
+        if (range && view) {
+          view.dispatch({ changes: { from: range.from, to: range.to, insert: "" } });
+        } else if (range) {
+          setCode(currentText.slice(0, range.from) + currentText.slice(range.to));
+        }
+        removeTool.mutate(toolName);
+      } else {
+        const insertAt = leadingUseBlockEnd(currentText);
+        if (view) {
+          view.dispatch({ changes: { from: insertAt, insert: `${line}\n` } });
+          view.focus();
+        } else {
+          // View not mounted yet (shouldn't normally happen) — edit the
+          // string directly rather than silently dropping the reference.
+          setCode(currentText.slice(0, insertAt) + line + "\n" + currentText.slice(insertAt));
+        }
+        addTool.mutate(toolName);
+      }
+    },
+  }));
+
+  // Keeps the toolbar's "which tools are added" highlight in sync with the
+  // buffer even if a use/include line is added or removed by hand rather
+  // than by clicking a tool.
+  useEffect(() => {
+    onToolsChanged?.(Array.from(extractReferencedToolNames(code)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onToolsChanged
+    // intentionally excluded: re-firing only on code changes, not on every
+    // parent re-render that happens to pass a new closure.
+  }, [code]);
 
   useEffect(() => {
     const renderer = new ScadRenderer();
@@ -88,7 +207,7 @@ export function ScadWorkspace({
     const id = ++renderIdRef.current;
     setRendering(true);
     try {
-      const stl = await rendererRef.current!.render(code, quality);
+      const stl = await rendererRef.current!.render(code, quality, extractToolFiles(code, tools ?? []));
       if (renderIdRef.current !== id) return;
       lastStlRef.current = stl;
       const url = URL.createObjectURL(new Blob([stl], { type: "model/stl" }));
@@ -200,6 +319,7 @@ export function ScadWorkspace({
       <div className="flex-1 grid grid-cols-2 min-h-0">
         <div className="min-h-0 overflow-auto border-r border-ink-600">
           <CodeMirror
+            ref={cmRef}
             value={code}
             height="100%"
             theme="dark"
@@ -229,4 +349,4 @@ export function ScadWorkspace({
       </div>
     </div>
   );
-}
+});
