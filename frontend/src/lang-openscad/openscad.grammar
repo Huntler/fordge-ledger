@@ -1,0 +1,190 @@
+// Lezer grammar for OpenSCAD. Covers the practical subset of the language
+// used by real .scad files (declarations, statements, expressions incl.
+// ranges/vectors/list comprehensions) — see frontend/README.md and the
+// project plan for the deliberate scope cuts (only one modifier char per
+// call, no include/use target resolution, no Customizer annotations, no
+// function-literal values). Run `npm run grammar:build` after editing this
+// file to regenerate parser.js, and commit both together.
+
+@precedence {
+  postfix,
+  prefix,
+  times @left,
+  plus @left,
+  rel @left,
+  eq @left,
+  and @left,
+  or @left,
+  ternary @right,
+  dangling
+}
+
+@top Program { statement* }
+
+@skip { spaces | LineComment | BlockComment }
+
+kw<term> { @specialize[@name={term}]<Identifier, term> }
+
+statement {
+  ModuleDeclaration |
+  FunctionDeclaration |
+  IncludeDirective |
+  UseDirective |
+  Assignment |
+  IfStatement |
+  ForStatement |
+  LetStatement |
+  Block |
+  ModuleCallStatement |
+  EmptyStatement
+}
+
+EmptyStatement { ";" }
+
+Block { "{" statement* "}" }
+
+ModuleDeclaration { kw<"module"> Identifier ParamList statement }
+
+FunctionDeclaration { kw<"function"> Identifier ParamList "=" Expression ";" }
+
+// Assignment targets can be a plain variable or a special variable (e.g.
+// `$fn = 50;`, `for ($t = [0:0.1:1])`) — both are legal assignment LHSes.
+AssignTarget { Identifier | SpecialVariable }
+
+Assignment { AssignTarget "=" Expression ";" }
+
+IncludeDirective { kw<"include"> IncludePath }
+
+UseDirective { kw<"use"> IncludePath }
+
+// The dangling-else ambiguity (nested unbraced ifs) resolves the way every
+// C-like language does: `else` binds to the nearest `if`.
+IfStatement { kw<"if"> "(" Expression ")" statement (!dangling kw<"else"> statement)? }
+
+ForStatement { kw<"for"> "(" ForHead ")" statement }
+
+ForHead { AssignmentList | LegacyForHead }
+
+// Legacy C-style for(init; cond; update) — still seen in older sources.
+LegacyForHead { SimpleAssignment ";" Expression ";" SimpleAssignment }
+
+LetStatement { kw<"let"> "(" AssignmentList ")" statement }
+
+AssignmentList { SimpleAssignment ("," SimpleAssignment)* }
+
+SimpleAssignment { AssignTarget "=" Expression }
+
+// A module-invocation statement: an optional highlight/debug modifier, the
+// call itself, then its child statement (another call, a block, a control
+// statement, or a bare ";" via EmptyStatement — all already covered by
+// `statement`, so no separate ";" alternative is needed here).
+ModuleCallStatement { Modifier? CallExpression statement }
+
+Modifier { "*" | "!" | "#" | "%" }
+
+ParamList { "(" (Param ("," Param)*)? ","? ")" }
+
+Param { Identifier ("=" Expression)? }
+
+ArgList { (Argument ("," Argument)*)? ","? }
+
+Argument { NamedArgument | Expression }
+
+NamedArgument { AssignTarget "=" Expression }
+
+Expression {
+  Number |
+  String |
+  Boolean |
+  Undef |
+  Identifier |
+  SpecialVariable |
+  ParenExpression |
+  VectorExpression |
+  RangeExpression |
+  ListComprehension |
+  UnaryExpression |
+  BinaryExpression |
+  TernaryExpression |
+  CallExpression |
+  IndexExpression
+}
+
+Boolean { kw<"true"> | kw<"false"> }
+
+Undef { kw<"undef"> }
+
+ParenExpression { "(" Expression ")" }
+
+UnaryExpression { !prefix ("-" | "+" | "!") Expression }
+
+BinaryExpression {
+  Expression !times ("*" | "/" | "%") Expression |
+  Expression !plus ("+" | "-") Expression |
+  Expression !rel ("<" | "<=" | ">" | ">=") Expression |
+  Expression !eq ("==" | "!=") Expression |
+  Expression !and "&&" Expression |
+  Expression !or "||" Expression
+}
+
+TernaryExpression { Expression !ternary "?" Expression ":" Expression }
+
+IndexExpression { Expression !postfix "[" Expression "]" }
+
+CallExpression { (Identifier | SpecialVariable) "(" ArgList ")" }
+
+// `let(...)` as a bare expression (as opposed to a statement or a list-
+// comprehension clause, both handled elsewhere) is deliberately out of
+// scope for v1 — allowing it here made `[let (x=1) x*2 : 10]` genuinely
+// ambiguous between "range whose start is a let-expression" and "list
+// comprehension with a let clause", which is not worth resolving for how
+// rarely the former is actually written.
+
+VectorExpression { "[" (VectorElement ("," VectorElement)*)? ","? "]" }
+
+VectorElement { kw<"each">? Expression }
+
+RangeExpression { "[" Expression ":" Expression (":" Expression)? "]" }
+
+ListComprehension { "[" ComprehensionClause+ VectorElement "]" }
+
+ComprehensionClause {
+  kw<"for"> "(" AssignmentList ")" |
+  kw<"let"> "(" AssignmentList ")" |
+  kw<"if"> "(" Expression ")"
+}
+
+@tokens {
+  spaces { $[ \t\n\r]+ }
+
+  Identifier { $[a-zA-Z_] $[a-zA-Z_0-9]* }
+
+  SpecialVariable { "$" $[a-zA-Z_] $[a-zA-Z_0-9]* }
+
+  Number {
+    $[0-9]+ ("." $[0-9]*)? (("e" | "E") ("+" | "-")? $[0-9]+)? |
+    "." $[0-9]+ (("e" | "E") ("+" | "-")? $[0-9]+)?
+  }
+
+  String { '"' (![\\\"\n] | "\\" _)* '"' }
+
+  // include/use targets: <path/to/file.scad>
+  IncludePath { "<" ![>\n]* ">" }
+
+  LineComment { "//" ![\n]* }
+
+  // Non-nesting block comment, matching real OpenSCAD/C semantics.
+  BlockComment { "/*" (![*] | "*" ![/])* "*"+ "/" }
+
+  "(" ")" "[" "]" "{" "}" "," ";" ":" "=" "?"
+  "*" "/" "%" "+" "-" "!" "#"
+  "<" "<=" ">" ">=" "==" "!=" "&&" "||"
+
+  @precedence { "<=", "<" }
+  @precedence { ">=", ">" }
+  @precedence { "==", "=" }
+  @precedence { "!=", "!" }
+  @precedence { "&&" }
+  @precedence { "||" }
+  @precedence { BlockComment, LineComment, "/" }
+}

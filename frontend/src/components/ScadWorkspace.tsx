@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import CodeMirror from "@uiw/react-codemirror";
-import { cpp } from "@codemirror/lang-cpp";
+import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
+import { lintGutter } from "@codemirror/lint";
 import { StlViewer } from "react-stl-viewer";
+import { openscad } from "../lang-openscad";
 import { api } from "../api";
 import { useUi } from "../store";
 import { ScadRenderer } from "../lib/scadRenderer";
@@ -190,7 +192,7 @@ export function ScadWorkspace({
             value={code}
             height="100%"
             theme="dark"
-            extensions={[cpp()]}
+            extensions={[openscad(), lintGutter(), autocompletion(), closeBrackets()]}
             onChange={(value) => setCode(value)}
           />
         </div>

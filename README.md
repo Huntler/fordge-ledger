@@ -454,6 +454,25 @@ the reliability problem above. Getting Manifold means sourcing or building an
 [openscad-playground](https://github.com/openscad/openscad-playground) does
 via its own Docker/Emscripten build pipeline — out of scope here for now.
 
+**Linting and autocomplete run off a hand-written OpenSCAD grammar**, not
+`openscad-wasm` — a real Lezer grammar (`frontend/src/lang-openscad/`,
+compiled from `openscad.grammar` via `npm run grammar:build`) drives syntax
+highlighting, autocomplete, and lint diagnostics, all instantly and offline,
+without paying for a WASM render on every keystroke. Lezer's own error
+recovery gives free "syntax error" diagnostics wherever the parser can't make
+sense of something; a handful of hand-written checks layer on top of that
+same parse tree: unknown module/function calls, duplicate `module`/`function`
+declarations, `$name` special-variable typos, and `if (x = 1)` (missing a
+second `=`). Autocomplete offers OpenSCAD's builtins plus whatever
+`module`/`function`/top-level variable names the current file itself
+declares. The grammar covers the practical subset of the language (see the
+comment at the top of `openscad.grammar` for the deliberate cuts — no
+resolving `include`/`use` targets, at most one modifier character per call,
+no Customizer annotations); the "unknown module/function" check in
+particular is skipped outright for any file containing `include`/`use`,
+since v1 has no way to know what symbols those bring in and a linter that
+cries wolf on legitimate cross-file calls just gets ignored.
+
 ---
 
 ## Configuration
