@@ -19,6 +19,11 @@ export function useEvents() {
 
   useEffect(() => {
     const source = new EventSource("/api/events");
+    // EventSource retries on its own, often several times a second while the
+    // network or server is flaky. onerror fires once per failed attempt, so
+    // invalidating there directly turned every blip into a whole-app refetch
+    // storm; only the reconnect that actually lands needs one.
+    let droppedConnection = false;
 
     source.onmessage = (message) => {
       let payload: ServerEvent;
@@ -93,9 +98,16 @@ export function useEvents() {
     };
 
     // EventSource reconnects on its own; refetch so nothing missed while
-    // disconnected stays stale on screen.
+    // disconnected stays stale on screen. Only once the connection is back,
+    // not on every retry attempt in between.
     source.onerror = () => {
-      queryClient.invalidateQueries();
+      droppedConnection = true;
+    };
+    source.onopen = () => {
+      if (droppedConnection) {
+        droppedConnection = false;
+        queryClient.invalidateQueries();
+      }
     };
 
     return () => source.close();

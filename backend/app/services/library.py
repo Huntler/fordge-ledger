@@ -386,6 +386,12 @@ class LibraryService:
         # hook so the library stays unaware of print ingest, which depends on it.
         # Returns True when it wrote files, which triggers one refreshing scan.
         self.after_scan: Callable[[str], bool] | None = None
+        # What scan_project_dir last notified about, keyed by project id. The
+        # watcher rescans on every filesystem touch — including a NAS indexer
+        # or backup tool bumping mtimes with nothing actually changed — so a
+        # scan only publishes when the part of the project the UI shows has
+        # actually moved, not on every rescan.
+        self._fingerprints: dict[str, str] = {}
 
     # ---------------------------------------------------------------- paths
 
@@ -441,6 +447,8 @@ class LibraryService:
         if stale:
             placeholders = ",".join("?" * len(stale))
             self.db.execute(f"DELETE FROM projects WHERE id IN ({placeholders})", tuple(stale))
+            for project_id in stale:
+                self._fingerprints.pop(project_id, None)
         return len(stale)
 
     def scan_project(self, slug: str) -> str | None:
@@ -523,11 +531,12 @@ class LibraryService:
                 ],
             )
 
+            image_rows = self._image_rows(doc, files)
             conn.execute("DELETE FROM images WHERE project_id = ?", (doc.id,))
             conn.executemany(
                 "INSERT INTO images(project_id, rel_path, category, sort_order, variant, "
                 "source_path) VALUES(?, ?, ?, ?, ?, ?)",
-                self._image_rows(doc, files),
+                image_rows,
             )
 
         self._sync_versions(doc.id, directory)
@@ -544,9 +553,45 @@ class LibraryService:
                     # land in the cache now rather than at the next scan.
                     return self.scan_project_dir(directory, notify=notify, run_hook=False)
 
-        if notify:
+        # Always refreshed, even when notify=False (scan_all's boot/nightly
+        # pass), so the first watcher-triggered touch after a restart has a
+        # real baseline to compare against instead of always looking "new".
+        state_changed = self._changed_since_last_scan(doc.id, doc, notes, cover, files, image_rows)
+        if notify and state_changed:
             bus.publish("project.updated", {"id": doc.id, "slug": slug})
         return doc.id
+
+    def _changed_since_last_scan(
+        self,
+        project_id: str,
+        doc: ProjectDoc,
+        notes: str,
+        cover: str,
+        files: list[dict[str, Any]],
+        image_rows: list[tuple],
+    ) -> bool:
+        """Whether anything the UI shows moved since the last notified scan.
+
+        The watcher rescans on every filesystem event, including a NAS indexer
+        or backup tool touching mtimes with the file itself unchanged. mtime is
+        deliberately left out of the fingerprint so that alone cannot trigger a
+        client refetch — only size/kind/content changes, which are what a real
+        edit produces.
+        """
+        fingerprint = json.dumps(
+            {
+                "doc": doc.as_dict(),
+                "notes": notes,
+                "cover": cover,
+                "files": sorted((f["rel_path"], f["kind"], f["size"]) for f in files),
+                "images": sorted(image_rows),
+            },
+            sort_keys=True,
+            default=str,
+        )
+        previous = self._fingerprints.get(project_id)
+        self._fingerprints[project_id] = fingerprint
+        return previous != fingerprint
 
     def _walk_files(self, directory: Path) -> list[dict[str, Any]]:
         entries: list[dict[str, Any]] = []
@@ -786,6 +831,7 @@ class LibraryService:
             shutil.rmtree(directory)
 
         self.db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        self._fingerprints.pop(project_id, None)
         bus.publish("project.deleted", {"id": project_id})
         return trashed_to
 
