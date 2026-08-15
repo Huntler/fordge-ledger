@@ -21,8 +21,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Lets buildx target arm64 (e.g. an ARM-based NAS) from the x86 runner.
+      # Every push to main only needs amd64 and stays fast (native build).
+      # Full multi-arch (adding emulated arm64, for e.g. an ARM-based NAS)
+      # is reserved for tagged releases, where the extra QEMU time is worth it.
+      - name: Determine target platforms
+        id: platforms
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up QEMU
+        if: github.ref_type == 'tag'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -53,7 +65,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.platforms.outputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
