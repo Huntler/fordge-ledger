@@ -4,7 +4,7 @@ import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
 import { lintGutter } from "@codemirror/lint";
 import { StlViewer } from "react-stl-viewer";
-import { openscad } from "../lang-openscad";
+import { openscad, toolSourcesFacet } from "../lang-openscad";
 import { api, type Tool } from "../api";
 import { useUi } from "../store";
 import { ScadRenderer, type RenderQuality } from "../lib/scadRenderer";
@@ -323,7 +323,15 @@ export const ScadWorkspace = forwardRef<
             value={code}
             height="100%"
             theme="dark"
-            extensions={[openscad(), lintGutter(), autocompletion(), closeBrackets()]}
+            extensions={[
+              openscad(),
+              lintGutter(),
+              autocompletion(),
+              closeBrackets(),
+              // Lets a `use <tools/foo.scad>;` line autocomplete foo's own
+              // modules/functions — see toolSourcesFacet in lang-openscad.
+              toolSourcesFacet.of(Object.fromEntries((tools ?? []).map((t) => [t.name, t.body]))),
+            ]}
             onChange={(value) => setCode(value)}
           />
         </div>

@@ -238,6 +238,53 @@ export function JobProgress() {
   );
 }
 
+/**
+ * Instant, app-styled hover tooltip — a from-scratch stand-in for the
+ * native `title` attribute, which imposes its own show delay and can't
+ * hold anything richer than plain text. `position: fixed`, recomputed from
+ * the anchor's own rect on each show, so — like Modal's backdrop above —
+ * it escapes clipping from an `overflow-auto` ancestor (e.g. ScadToolbar's
+ * horizontally-scrolling tool strip) without needing a portal.
+ */
+export function Tooltip({ content, children }: { content: ReactNode; children: ReactNode }) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  const show = () => setRect(anchorRef.current?.getBoundingClientRect() ?? null);
+  const hide = () => setRect(null);
+
+  // Keeps the tooltip glued to its anchor if the strip scrolls underneath
+  // it without the mouse leaving — e.g. a trackpad swipe mid-hover.
+  useEffect(() => {
+    if (!rect) return;
+    window.addEventListener("scroll", show, true);
+    return () => window.removeEventListener("scroll", show, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-subscribe on visibility, not on every rect update
+  }, [rect !== null]);
+
+  return (
+    <span
+      ref={anchorRef}
+      className="inline-flex shrink-0"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      {children}
+      {rect && (
+        <div
+          className="fixed z-50 max-w-xs rounded-lg border border-accent bg-ink-800 px-3 py-2
+                     text-xs shadow-lg pointer-events-none"
+          style={{ left: rect.left + rect.width / 2, top: rect.top - 8, transform: "translate(-50%, -100%)" }}
+        >
+          {content}
+        </div>
+      )}
+    </span>
+  );
+}
+
 /** Minimal Markdown preview — enough for headings, lists, bold and links. */
 export function Markdown({ source }: { source: string }) {
   const html = source
