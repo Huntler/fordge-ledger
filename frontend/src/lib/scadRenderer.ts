@@ -4,6 +4,8 @@
  * on first render() and torn down when the panel closes.
  */
 
+export type RenderQuality = "low" | "medium" | "high";
+
 type WorkerResponse =
   | { id: number; ok: true; stl: string }
   | { id: number; ok: false; error: string }
@@ -48,12 +50,12 @@ export class ScadRenderer {
     return this.worker;
   }
 
-  render(code: string): Promise<string> {
+  render(code: string, quality: RenderQuality = "medium"): Promise<string> {
     const worker = this.ensureWorker();
     const id = this.nextId++;
     return new Promise<string>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      worker.postMessage({ id, code });
+      worker.postMessage({ id, code, quality });
     });
   }
 

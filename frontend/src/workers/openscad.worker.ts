@@ -31,12 +31,28 @@ function createInstance() {
   }).then((wrapper) => wrapper.getInstance());
 }
 
+// OpenSCAD's own defaults ($fa=12, $fs=2, $fn=0) produce very coarse
+// cylinders/spheres — a 2mm-radius cylinder gets ~6 facets. These presets
+// set $fn as a command-line default (overridable by the script itself, same
+// as OpenSCAD's customizer variables) so curved geometry looks reasonable
+// without editing the source. Keep in sync with the dropdown in
+// ScadWorkspace.tsx.
+const FN_BY_QUALITY = { low: 16, medium: 64, high: 128 };
+
 self.onmessage = async (event) => {
-  const { id, code } = event.data;
+  const { id, code, quality } = event.data;
   try {
     const instance = await createInstance();
     instance.FS.writeFile("/input.scad", code);
-    instance.callMain(["/input.scad", "--enable=manifold", "-o", "/output.stl"]);
+    const fn = FN_BY_QUALITY[quality] ?? FN_BY_QUALITY.medium;
+    instance.callMain([
+      "/input.scad",
+      "--enable=manifold",
+      "-D",
+      `$fn=${fn}`,
+      "-o",
+      "/output.stl",
+    ]);
     const stl = instance.FS.readFile("/output.stl", { encoding: "utf8" });
     self.postMessage({ id, ok: true, stl });
   } catch (err) {

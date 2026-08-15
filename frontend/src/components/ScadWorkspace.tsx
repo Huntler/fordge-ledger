@@ -7,7 +7,7 @@ import { StlViewer } from "react-stl-viewer";
 import { openscad } from "../lang-openscad";
 import { api } from "../api";
 import { useUi } from "../store";
-import { ScadRenderer } from "../lib/scadRenderer";
+import { ScadRenderer, type RenderQuality } from "../lib/scadRenderer";
 
 // A native WASM crash (rather than OpenSCAD reporting a real compile error)
 // surfaces as a bare stringified pointer instead of a message, e.g.
@@ -64,6 +64,7 @@ export function ScadWorkspace({
   const [stlUrl, setStlUrl] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [quality, setQuality] = useState<RenderQuality>("medium");
 
   const rendererRef = useRef<ScadRenderer | null>(null);
   const stlUrlRef = useRef<string | null>(null);
@@ -87,7 +88,7 @@ export function ScadWorkspace({
     const id = ++renderIdRef.current;
     setRendering(true);
     try {
-      const stl = await rendererRef.current!.render(code);
+      const stl = await rendererRef.current!.render(code, quality);
       if (renderIdRef.current !== id) return;
       lastStlRef.current = stl;
       const url = URL.createObjectURL(new Blob([stl], { type: "model/stl" }));
@@ -163,6 +164,16 @@ export function ScadWorkspace({
               Close
             </button>
           )}
+          <select
+            className="btn w-auto pr-2 cursor-pointer hover:bg-ink-600"
+            value={quality}
+            onChange={(e) => setQuality(e.target.value as RenderQuality)}
+            title="Tessellation quality (cylinder/sphere facet count)"
+          >
+            <option value="low">Low quality</option>
+            <option value="medium">Medium quality</option>
+            <option value="high">High quality</option>
+          </select>
           <button type="button" className="btn" disabled={rendering} onClick={() => renderNow()}>
             {rendering ? "Rendering…" : "Render"}
           </button>
