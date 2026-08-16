@@ -10,6 +10,7 @@ validated and stored alongside the snippet.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,15 @@ from ..utils import slugify
 from .library import MODEL_SOURCES_DIR, LibraryService
 
 log = logging.getLogger(__name__)
+
+# Matches a `use <tools/slug.scad>;` or `include <tools/slug.scad>;` line —
+# mirrors TOOL_USE_RE in ScadWorkspace.tsx (kept in sync by hand; not a real
+# OpenSCAD parser, just enough to tell whether a source still wants a given
+# tool). Used by remove_from_project to decide whether another .scad source
+# in the project still needs the copy before deleting it.
+TOOL_USE_RE = re.compile(
+    r"^[ \t]*(?:use|include)[ \t]*<[ \t]*tools/([a-z0-9-]+)\.scad[ \t]*>", re.MULTILINE
+)
 
 TOOLS_DIR = "_shared/tools"
 
@@ -351,15 +361,51 @@ class ToolsService:
         return target.relative_to(directory).as_posix()
 
     def remove_from_project(self, project_id: str, name: str) -> None:
-        """The other half of copy_into_project. Leaves an empty tools/ dir
-        behind if this was the last one — harmless, and nothing else in the
-        app proactively cleans up empty directories either."""
+        """The other half of copy_into_project. The copy under
+        models/sources/tools/ is shared by every .scad source in the
+        project that references it — toggling a tool off in the file
+        you're currently editing doesn't mean some other source in the
+        project isn't still `use <tools/...>;`-ing it, and deleting the
+        copy out from under a source that still needs it breaks that
+        source everywhere except this app's own live renderer (which
+        pulls tool bodies from the shared `_shared/tools/` library, not
+        this per-project copy — see extractToolFiles in ScadWorkspace.tsx).
+        So: only actually delete once nothing else in the project still
+        references it; otherwise leave the copy in place. Leaves an empty
+        tools/ dir behind if this was the last one — harmless, and nothing
+        else in the app proactively cleans up empty directories either.
+        """
         directory = self.library.dir_for_id(project_id)
         if directory is None:
             raise KeyError(project_id)
         stem = slugify(name, fallback="tool")
+        if self._still_referenced(directory, stem):
+            return
         (directory / MODEL_SOURCES_DIR / "tools" / f"{stem}.scad").unlink(missing_ok=True)
         self.library.scan_project_dir(directory)
+
+    def _still_referenced(self, directory: Path, stem: str) -> bool:
+        """Whether any .scad source in the project — other than the tools/
+        copies themselves — still references tools/<stem>.scad. Reads
+        on-disk content, so an unsaved buffer's edits (e.g. a toggle-off
+        that hasn't been Saved yet) don't count; that's the conservative
+        direction to be wrong in, since it just keeps a copy around a
+        little longer rather than deleting one something still needs.
+        """
+        sources_dir = directory / MODEL_SOURCES_DIR
+        tools_dir = sources_dir / "tools"
+        if not sources_dir.is_dir():
+            return False
+        for path in sources_dir.rglob("*.scad"):
+            if path.is_relative_to(tools_dir):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if any(match == stem for match in TOOL_USE_RE.findall(text)):
+                return True
+        return False
 
 
 def _icon_has_alpha(path: Path) -> bool:

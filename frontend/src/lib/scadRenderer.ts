@@ -52,9 +52,10 @@ export class ScadRenderer {
 
   /**
    * `files` are extra virtual-FS entries the code may `use`/`include` —
-   * currently just referenced tool snippets, keyed by their path
-   * (`tools/<slug>.scad`), written in before compiling. See
-   * openscad.worker.ts.
+   * referenced tool snippets (`tools/<slug>.scad`) and the rest of the
+   * current project's `.scad` sources (keyed by their path relative to
+   * models/sources/, e.g. `other-part.scad`) — written in before compiling.
+   * See openscad.worker.ts.
    */
   render(
     code: string,

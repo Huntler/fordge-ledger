@@ -6,7 +6,7 @@ import { lintGutter } from "@codemirror/lint";
 import { StlPreview } from "./StlPreview";
 import { ScadObjectList } from "./ScadObjectList";
 import { openscad, toolSourcesFacet } from "../lang-openscad";
-import { api, type Tool } from "../api";
+import { api, readTextFile, type ProjectSources, type Tool } from "../api";
 import { useUi } from "../store";
 import { ScadRenderer, type RenderQuality } from "../lib/scadRenderer";
 import { computeScadObjects, isolateScadObject, toggleScadObject, type ScadObject } from "../lib/scadObjects";
@@ -32,6 +32,45 @@ function extractToolFiles(code: string, tools: Tool[]): Record<string, string> {
     if (tool) files[`tools/${name}.scad`] = tool.body;
   }
   return files;
+}
+
+const MODEL_SOURCES_PREFIX = "models/sources/";
+
+// Every other .scad in the project, fetched fresh and keyed by its path
+// relative to models/sources/ — the same scheme a copied-in tool uses
+// (models/sources/tools/foo.scad -> tools/foo.scad) — so a `use <bar.scad>;`
+// or `import <sub/bar.scad>;` line resolves against the rest of the project,
+// not just tool snippets. Excludes the file currently open (its live buffer,
+// not the possibly-stale on-disk copy, is what's already at /input.scad) and
+// anything under tools/ (the addTool/removeTool mutations already stage
+// those, and they're excluded from the sources listing itself). Reads
+// current disk content on every call rather than caching — cheap against a
+// local backend, and it means a render always sees the latest saved sibling
+// state instead of what was true when the panel opened.
+async function loadProjectFiles(
+  projectId: string,
+  sources: ProjectSources | undefined,
+  currentRelPath: string | null,
+): Promise<Record<string, string>> {
+  const siblings = (sources?.models ?? []).filter(
+    (f) => f.rel_path.toLowerCase().endsWith(".scad") && f.rel_path !== currentRelPath,
+  );
+  const entries = await Promise.all(
+    siblings.map(async (f) => {
+      const vfsPath = f.rel_path.startsWith(MODEL_SOURCES_PREFIX)
+        ? f.rel_path.slice(MODEL_SOURCES_PREFIX.length)
+        : f.rel_path;
+      try {
+        return [vfsPath, await readTextFile(projectId, f.rel_path)] as const;
+      } catch {
+        // A sibling that vanished or failed to load between listing and
+        // fetch shouldn't sink the whole render — any `use`/`include` that
+        // needed it fails on its own, same as a genuinely missing file.
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter((e): e is readonly [string, string] => e !== null));
 }
 
 // Where a new `use <tools/...>;` line should land: after any leading block
@@ -80,9 +119,11 @@ function explainRenderError(message: string): string {
 
 /**
  * SCAD source editor with a live 3D preview. OpenSCAD itself runs as
- * WebAssembly in a worker (see ../workers/openscad.worker.ts) — nothing here
- * touches the network beyond Save/Export, so editing and previewing work
- * offline.
+ * WebAssembly in a worker (see ../workers/openscad.worker.ts) — actual
+ * compilation never leaves the browser. Rendering does still hit the network
+ * against the local backend, to pull in the rest of the project (see
+ * loadProjectFiles) and any referenced tools, so it isn't offline end to end
+ * — only the OpenSCAD run itself is.
  *
  * `relPath` null means "unsaved new source"; Save then creates it via the
  * upload endpoint. Once it has a path, Save overwrites that file in place,
@@ -145,6 +186,12 @@ export const ScadWorkspace = forwardRef<
   // must never trigger a render itself — setThumbnails (below) does that.
   const thumbnailCacheRef = useRef<Map<string, string>>(new Map());
   const { data: tools } = useQuery({ queryKey: ["tools"], queryFn: api.tools });
+  // Shares the ["sources", projectId] cache with Project.tsx's file browser
+  // — already invalidated by this file's own save mutation below, so a
+  // sibling saved from here shows up for the next render without extra
+  // wiring. Only the listing (names/paths) is cached; loadProjectFiles
+  // fetches each sibling's actual content fresh per render — see there.
+  const { data: sources } = useQuery({ queryKey: ["sources", projectId], queryFn: () => api.sources(projectId) });
 
   // The physical copy-in/remove side of toggling a tool (see the handle
   // below) — a real file under models/sources/tools/, not just the
@@ -245,7 +292,12 @@ export const ScadWorkspace = forwardRef<
     const id = ++renderIdRef.current;
     setRendering(true);
     try {
-      const stl = await rendererRef.current!.render(code, quality, extractToolFiles(code, tools ?? []));
+      const files = {
+        ...extractToolFiles(code, tools ?? []),
+        ...(await loadProjectFiles(projectId, sources, relPath)),
+      };
+      if (renderIdRef.current !== id) return;
+      const stl = await rendererRef.current!.render(code, quality, files);
       if (renderIdRef.current !== id) return;
       lastStlRef.current = stl;
       const url = URL.createObjectURL(new Blob([stl], { type: "model/stl" }));
@@ -253,7 +305,7 @@ export const ScadWorkspace = forwardRef<
       stlUrlRef.current = url;
       setStlUrl(url);
       setRenderError(null);
-      generateThumbnails(id, code);
+      generateThumbnails(id, code, files);
     } catch (err) {
       if (renderIdRef.current !== id) return;
       const message = err instanceof Error ? err.message : String(err);
@@ -271,11 +323,10 @@ export const ScadWorkspace = forwardRef<
   // Fire-and-forget from renderNow: a slow or failed thumbnail must never
   // hold up the main preview, which has already landed by the time this
   // starts.
-  const generateThumbnails = async (id: number, sourceCode: string) => {
+  const generateThumbnails = async (id: number, sourceCode: string, files: Record<string, string>) => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     const currentObjects = computeScadObjects(sourceCode);
-    const files = extractToolFiles(sourceCode, tools ?? []);
     for (const object of currentObjects) {
       if (renderIdRef.current !== id) return; // a newer render superseded this pass
       const key = object.text.trim();
