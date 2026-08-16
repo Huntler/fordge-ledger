@@ -1,4 +1,4 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { useEvents } from "./hooks/useEvents";
@@ -22,6 +22,9 @@ export default function App() {
   useEvents();
   const notify = useUi((s) => s.notify);
   const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health });
+  // The editor's file tree + 3D viewport benefit from the full viewport width;
+  // every other page stays boxed at a comfortable reading width.
+  const isEditor = useLocation().pathname.startsWith("/editor");
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -68,7 +71,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-6">
+      <main className={`flex-1 w-full mx-auto px-6 py-6 ${isEditor ? "" : "max-w-7xl"}`}>
         <Routes>
           <Route path="/" element={<Navigate to="/library" replace />} />
           <Route path="/library" element={<Library />} />

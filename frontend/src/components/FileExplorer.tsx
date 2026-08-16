@@ -32,12 +32,36 @@ export function FileExplorer({
     queryKey: ["projects", {}],
     queryFn: () => api.projects({}),
   });
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (collapsed) {
+    return (
+      <aside className="w-8 shrink-0 card p-1 flex flex-col items-center">
+        <button
+          type="button"
+          className="btn btn-ghost text-xs px-1.5 py-1"
+          title="Show projects"
+          onClick={() => setCollapsed(false)}
+        >
+          ▸
+        </button>
+      </aside>
+    );
+  }
 
   return (
     <aside className="w-72 shrink-0 card p-2 overflow-y-auto">
-      <h2 className="px-2 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">
-        Projects
-      </h2>
+      <div className="flex items-center justify-between px-2 py-1.5">
+        <h2 className="text-xs font-medium uppercase tracking-wide text-slate-500">Projects</h2>
+        <button
+          type="button"
+          className="btn btn-ghost text-xs px-1.5 py-0"
+          title="Collapse projects"
+          onClick={() => setCollapsed(true)}
+        >
+          ◂
+        </button>
+      </div>
       {isLoading ? (
         <Spinner />
       ) : !projects || projects.length === 0 ? (

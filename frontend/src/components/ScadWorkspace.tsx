@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
 import { lintGutter } from "@codemirror/lint";
-import { StlViewer } from "react-stl-viewer";
+import { StlPreview } from "./StlPreview";
 import { openscad, toolSourcesFacet } from "../lang-openscad";
 import { api, type Tool } from "../api";
 import { useUi } from "../store";
@@ -337,12 +337,7 @@ export const ScadWorkspace = forwardRef<
         </div>
         <div className="relative min-h-0 bg-ink-900">
           {stlUrl ? (
-            <StlViewer
-              url={stlUrl}
-              orbitControls
-              shadows
-              style={{ width: "100%", height: "100%" }}
-            />
+            <StlPreview url={stlUrl} className="w-full h-full" />
           ) : (
             <div className="h-full flex items-center justify-center text-sm text-slate-500">
               {rendering ? "Rendering…" : "Click Render to preview"}
