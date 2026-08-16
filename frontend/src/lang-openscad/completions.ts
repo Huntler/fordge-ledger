@@ -96,6 +96,8 @@ export function collectUserSymbols(tree: Tree, doc: Text): Completion[] {
  * tooltip in ScadToolbar previews), formatted as `name(params)` — the same
  * signature format collectUserSymbols shows in the completion popup, so a
  * module reads identically whether you're browsing the toolbar or typing.
+ * Underscore-prefixed modules (e.g. `_nut_prism`) are private helpers, not
+ * part of the tool's public API, so they're left out of the listing.
  */
 export function listToolModules(body: string): string[] {
   const tree = parser.parse(body);
@@ -109,6 +111,7 @@ export function listToolModules(body: string): string[] {
       const idNode = ref.node.getChild("Identifier");
       if (!idNode) return;
       const name = doc.sliceString(idNode.from, idNode.to);
+      if (name.startsWith("_")) return; // private helper module, not part of the tool's public API
       out.push(`${name}(${paramNames(ref.node.getChild("ParamList"), doc)})`);
     },
   });

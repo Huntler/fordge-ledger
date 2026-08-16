@@ -181,6 +181,9 @@ export interface Tool {
   name: string;
   body: string;
   has_icon: boolean;
+  /** True if the icon has real transparency (not a flat photo) — safe to
+   * tint to the toolbar's active/inactive state rather than shown as-is. */
+  has_alpha: boolean;
 }
 
 export interface Health {

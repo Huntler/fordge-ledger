@@ -274,7 +274,7 @@ export function Tooltip({ content, children }: { content: ReactNode; children: R
       {children}
       {rect && (
         <div
-          className="fixed z-50 max-w-xs rounded-lg border border-accent bg-ink-800 px-3 py-2
+          className="fixed z-50 max-w-md rounded-lg border border-accent bg-ink-800 px-3 py-2
                      text-xs shadow-lg pointer-events-none"
           style={{ left: rect.left + rect.width / 2, top: rect.top - 8, transform: "translate(-50%, -100%)" }}
         >

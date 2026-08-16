@@ -90,7 +90,7 @@ export function ToolForm({
           className="input"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Chamfer Cylinder"
+          placeholder="Screw"
         />
       </div>
 
@@ -126,7 +126,7 @@ export function ToolForm({
           className="input font-mono text-sm min-h-[10rem]"
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="module chamfer_cylinder(h, r, chamfer=1) { ... }"
+          placeholder='module screw(length, diameter, head="flat", head_diameter, head_height=0, chamfer=0) { ... }'
         />
       </div>
 

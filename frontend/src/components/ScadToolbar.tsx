@@ -49,10 +49,20 @@ export function ScadToolbar({
               <div className="space-y-1">
                 <div className="font-semibold text-accent-soft">{tool.name}</div>
                 {signatures.length > 0 ? (
-                  <div className="font-mono space-y-0.5 text-slate-300">
-                    {signatures.map((signature) => (
-                      <div key={signature}>{signature}</div>
-                    ))}
+                  <div className="font-mono space-y-1.5 text-slate-300">
+                    {signatures.map((signature) => {
+                      // Signatures are always `name(params)` (see listToolModules) —
+                      // split so the name can stand out from its (often long) params.
+                      const open = signature.indexOf("(");
+                      const name = open === -1 ? signature : signature.slice(0, open);
+                      const params = open === -1 ? "" : signature.slice(open);
+                      return (
+                        <div key={signature} className="break-words">
+                          <span className="font-semibold text-slate-100">{name}</span>
+                          <span className="text-slate-400">{params}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="italic text-slate-500">No modules defined</div>
@@ -70,11 +80,32 @@ export function ScadToolbar({
               onClick={() => onToggle(tool.name)}
             >
               {tool.has_icon ? (
-                <img
-                  src={api.toolIconUrl(tool.name)}
-                  alt=""
-                  className="w-5 h-5 rounded object-cover"
-                />
+                tool.has_alpha ? (
+                  // Line-art icon (real transparency) — tint it to match the
+                  // toolbar's state instead of showing it as-is: a CSS mask
+                  // keeps the icon's silhouette but fills it with a flat
+                  // color, so it can be inactive-white / active-accent.
+                  <span
+                    aria-hidden="true"
+                    className={`w-5 h-5 shrink-0 ${added ? "bg-accent" : "bg-white"}`}
+                    style={{
+                      WebkitMaskImage: `url(${api.toolIconUrl(tool.name)})`,
+                      maskImage: `url(${api.toolIconUrl(tool.name)})`,
+                      WebkitMaskSize: "contain",
+                      maskSize: "contain",
+                      WebkitMaskRepeat: "no-repeat",
+                      maskRepeat: "no-repeat",
+                      WebkitMaskPosition: "center",
+                      maskPosition: "center",
+                    }}
+                  />
+                ) : (
+                  <img
+                    src={api.toolIconUrl(tool.name)}
+                    alt=""
+                    className="w-5 h-5 rounded object-cover"
+                  />
+                )
               ) : (
                 <span className="w-5 h-5 rounded bg-ink-600 flex items-center justify-center text-[10px] font-medium">
                   {tool.name.slice(0, 2).toUpperCase()}
