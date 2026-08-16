@@ -4,10 +4,13 @@ import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
 import { lintGutter } from "@codemirror/lint";
 import { StlPreview } from "./StlPreview";
+import { ScadObjectList } from "./ScadObjectList";
 import { openscad, toolSourcesFacet } from "../lang-openscad";
 import { api, type Tool } from "../api";
 import { useUi } from "../store";
 import { ScadRenderer, type RenderQuality } from "../lib/scadRenderer";
+import { computeScadObjects, isolateScadObject, toggleScadObject, type ScadObject } from "../lib/scadObjects";
+import { renderStlThumbnail } from "../lib/scadThumbnail";
 
 // Matches a `use <tools/slug.scad>;` or `include <tools/slug.scad>;` line —
 // how a referenced tool (see ScadToolbar) gets resolved at render time. Not
@@ -122,6 +125,8 @@ export const ScadWorkspace = forwardRef<
   const queryClient = useQueryClient();
 
   const [code, setCode] = useState(initialCode);
+  const [objects, setObjects] = useState<ScadObject[]>(() => computeScadObjects(initialCode));
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [filename, setFilename] = useState(relPath?.split("/").pop() ?? "new-part.scad");
   const [stlUrl, setStlUrl] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
@@ -133,6 +138,12 @@ export const ScadWorkspace = forwardRef<
   const lastStlRef = useRef<string | null>(null);
   const renderIdRef = useRef(0);
   const cmRef = useRef<ReactCodeMirrorRef>(null);
+  // Thumbnail cache survives across renders (keyed by an object's own
+  // statement text — see ScadObject.text), so re-rendering after an
+  // unrelated edit doesn't redo the still-unchanged objects' thumbnails.
+  // A ref rather than state: it's read-modify-write from an async loop and
+  // must never trigger a render itself — setThumbnails (below) does that.
+  const thumbnailCacheRef = useRef<Map<string, string>>(new Map());
   const { data: tools } = useQuery({ queryKey: ["tools"], queryFn: api.tools });
 
   // The physical copy-in/remove side of toggling a tool (see the handle
@@ -190,6 +201,33 @@ export const ScadWorkspace = forwardRef<
     // parent re-render that happens to pass a new closure.
   }, [code]);
 
+  // Keeps the object stack (see ScadObjectList) in sync with the buffer,
+  // the same way the effect above keeps the tools toolbar in sync — including
+  // when a toggle below edits the buffer itself, so a click's effect on the
+  // list is driven by the resulting parse rather than applied optimistically.
+  useEffect(() => {
+    setObjects(computeScadObjects(code));
+  }, [code]);
+
+  // Comments a top-level object's statement out of the buffer (or restores
+  // it) — see toggleScadObject. Mirrors the handle's toggleTool below:
+  // prefer editing the live CodeMirror view (so undo/redo see one coherent
+  // edit) and fall back to raw string surgery if the view isn't mounted yet.
+  const toggleObject = (object: ScadObject) => {
+    const view = cmRef.current?.view;
+    const currentText = view ? view.state.doc.toString() : code;
+    const edit = toggleScadObject(currentText, object);
+    if (!edit) {
+      notify('Can\'t toggle — this statement contains "*/", which would break the wrapping comment.', "error");
+      return;
+    }
+    if (view) {
+      view.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.insert } });
+    } else {
+      setCode(currentText.slice(0, edit.from) + edit.insert + currentText.slice(edit.to));
+    }
+  };
+
   useEffect(() => {
     const renderer = new ScadRenderer();
     rendererRef.current = renderer;
@@ -215,12 +253,50 @@ export const ScadWorkspace = forwardRef<
       stlUrlRef.current = url;
       setStlUrl(url);
       setRenderError(null);
+      generateThumbnails(id, code);
     } catch (err) {
       if (renderIdRef.current !== id) return;
       const message = err instanceof Error ? err.message : String(err);
       setRenderError(explainRenderError(message));
     } finally {
       if (renderIdRef.current === id) setRendering(false);
+    }
+  };
+
+  // Renders each object's own low-quality thumbnail (see ScadObjectList),
+  // one at a time — every render pays full WASM instantiation, so this
+  // deliberately never runs more than one in flight alongside the main
+  // render or another object's thumbnail. Cache-hit objects (unchanged
+  // since the last successful render) cost nothing beyond the lookup.
+  // Fire-and-forget from renderNow: a slow or failed thumbnail must never
+  // hold up the main preview, which has already landed by the time this
+  // starts.
+  const generateThumbnails = async (id: number, sourceCode: string) => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const currentObjects = computeScadObjects(sourceCode);
+    const files = extractToolFiles(sourceCode, tools ?? []);
+    for (const object of currentObjects) {
+      if (renderIdRef.current !== id) return; // a newer render superseded this pass
+      const key = object.text.trim();
+      const cached = thumbnailCacheRef.current.get(key);
+      if (cached) {
+        setThumbnails((prev) => (prev[key] === cached ? prev : { ...prev, [key]: cached }));
+        continue;
+      }
+      try {
+        const isolated = isolateScadObject(sourceCode, object, currentObjects);
+        const stl = await renderer.render(isolated, "low", files);
+        if (renderIdRef.current !== id) return;
+        const dataUrl = renderStlThumbnail(stl);
+        thumbnailCacheRef.current.set(key, dataUrl);
+        setThumbnails((prev) => ({ ...prev, [key]: dataUrl }));
+      } catch {
+        // Best-effort — an object that fails to render in isolation (rare:
+        // e.g. it actually depends on a sibling object's geometry) just
+        // keeps showing the placeholder in the list; the main preview
+        // already rendered fine.
+      }
     }
   };
 
@@ -316,7 +392,7 @@ export const ScadWorkspace = forwardRef<
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-2 min-h-0">
+      <div className="flex-1 grid grid-cols-[1fr_180px_1fr] min-h-0">
         <div className="min-h-0 overflow-auto border-r border-ink-600">
           <CodeMirror
             ref={cmRef}
@@ -335,6 +411,7 @@ export const ScadWorkspace = forwardRef<
             onChange={(value) => setCode(value)}
           />
         </div>
+        <ScadObjectList objects={objects} thumbnails={thumbnails} onToggle={toggleObject} />
         <div className="relative min-h-0 bg-ink-900">
           {stlUrl ? (
             <StlPreview url={stlUrl} className="w-full h-full" />
