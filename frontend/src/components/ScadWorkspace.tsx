@@ -25,11 +25,25 @@ function extractReferencedToolNames(code: string): Set<string> {
   return names;
 }
 
-function extractToolFiles(code: string, tools: Tool[]): Record<string, string> {
+// `sources` is every .scad text that ends up in the render's virtual FS —
+// the open buffer plus whatever sibling project files loadProjectFiles
+// pulled in — not just the open buffer. A sibling can `use <tools/...>;` on
+// its own account (e.g. a part file that wraps a tool in its own module),
+// and that reference is invisible if only the top-level buffer gets
+// scanned: the sibling would get staged into the VFS, but the tool it
+// itself depends on wouldn't, so OpenSCAD fails resolving *that* file's own
+// `use` line even though the file that actually failed to render never
+// mentioned tools/ at all. One flat scan rather than a real transitive
+// resolve — good enough as long as a tool's own body doesn't itself `use`
+// another tool, which none of the shipped ones do.
+function extractToolFiles(sources: Iterable<string>, tools: Tool[]): Record<string, string> {
   const files: Record<string, string> = {};
-  for (const name of extractReferencedToolNames(code)) {
-    const tool = tools.find((t) => t.name === name);
-    if (tool) files[`tools/${name}.scad`] = tool.body;
+  for (const code of sources) {
+    for (const name of extractReferencedToolNames(code)) {
+      if (files[`tools/${name}.scad`]) continue;
+      const tool = tools.find((t) => t.name === name);
+      if (tool) files[`tools/${name}.scad`] = tool.body;
+    }
   }
   return files;
 }
@@ -292,11 +306,12 @@ export const ScadWorkspace = forwardRef<
     const id = ++renderIdRef.current;
     setRendering(true);
     try {
-      const files = {
-        ...extractToolFiles(code, tools ?? []),
-        ...(await loadProjectFiles(projectId, sources, relPath)),
-      };
+      const projectFiles = await loadProjectFiles(projectId, sources, relPath);
       if (renderIdRef.current !== id) return;
+      const files = {
+        ...extractToolFiles([code, ...Object.values(projectFiles)], tools ?? []),
+        ...projectFiles,
+      };
       const stl = await rendererRef.current!.render(code, quality, files);
       if (renderIdRef.current !== id) return;
       lastStlRef.current = stl;
