@@ -10,10 +10,6 @@ __pycache__/
 node_modules/
 frontend/dist/
 
-# Fetched at dev/build time by scripts/fetch-openscad-wasm.mjs — pinned by
-# checksum there, not tracked here. See README.md § "The in-browser SCAD editor".
-frontend/public/openscad/
-
 # Built bundle, copied in from frontend/dist at package time
 backend/app/static/
 

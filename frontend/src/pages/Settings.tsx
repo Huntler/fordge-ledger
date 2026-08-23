@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type MarkdownDoc } from "../api";
 import { LlmSettings } from "../components/LlmSettings";
-import { ToolsSettings } from "../components/ToolsSettings";
 import { Spinner } from "../components/ui";
 import { useUi } from "../store";
 
@@ -72,7 +71,24 @@ export default function SettingsPage() {
         save={api.saveSnippet}
       />
 
-      <ToolsSettings />
+      {/* Tool management (the SCAD editor's reusable snippets) now lives in
+          the editor itself — see EXTRACTION-PROGRESS/04-host-ui.md. Nothing
+          to show here when the editor is unavailable; `_shared/tools/` is
+          still plain files on disk either way (R13). */}
+      {health.editor.available && (
+        <section className="card p-4">
+          <h2 className="font-medium mb-1">Editor tools</h2>
+          <p className="text-sm text-slate-500">
+            Reusable OpenSCAD snippets are managed in the editor now.{" "}
+            <a
+              className="text-accent hover:underline"
+              href={`${health.editor.path}settings`}
+            >
+              Open editor settings →
+            </a>
+          </p>
+        </section>
+      )}
 
       <section className="card p-4">
         <h2 className="font-medium mb-3">Recent jobs</h2>

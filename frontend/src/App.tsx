@@ -2,29 +2,34 @@ import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { useEvents } from "./hooks/useEvents";
+import { useEditorSync } from "./hooks/useEditorSync";
 import { JobProgress, Toasts } from "./components/ui";
 import { useUi } from "./store";
 import Library from "./pages/Library";
 import ProjectPage from "./pages/Project";
 import PrintBoard from "./pages/PrintBoard";
 import PublishPage from "./pages/Publish";
-import EditorPage from "./pages/Editor";
+import EditorFrame from "./pages/EditorFrame";
 import SettingsPage from "./pages/Settings";
-
-const NAV = [
-  { to: "/library", label: "Library" },
-  { to: "/prints", label: "Prints" },
-  { to: "/editor", label: "Editor" },
-  { to: "/settings", label: "Settings" },
-];
 
 export default function App() {
   useEvents();
+  useEditorSync();
   const notify = useUi((s) => s.notify);
   const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health });
   // The editor's file tree + 3D viewport benefit from the full viewport width;
   // every other page stays boxed at a comfortable reading width.
   const isEditor = useLocation().pathname.startsWith("/editor");
+
+  // Absent or unreachable editor -> no tab, no route, nothing lazy-loaded.
+  // The probe (health.editor.available), not FORGE_EDITOR_URL's mere
+  // presence, is authoritative — see §2.4 in the extraction plan.
+  const NAV = [
+    { to: "/library", label: "Library" },
+    { to: "/prints", label: "Prints" },
+    ...(health?.editor.available ? [{ to: "/editor", label: "Editor" }] : []),
+    { to: "/settings", label: "Settings" },
+  ];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -78,7 +83,7 @@ export default function App() {
           <Route path="/projects/:id" element={<ProjectPage />} />
           <Route path="/projects/:id/publish" element={<PublishPage />} />
           <Route path="/prints" element={<PrintBoard />} />
-          <Route path="/editor" element={<EditorPage />} />
+          <Route path="/editor" element={<EditorFrame />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/library" replace />} />
         </Routes>

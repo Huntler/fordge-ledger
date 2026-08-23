@@ -274,8 +274,9 @@ export function JobProgress() {
  * native `title` attribute, which imposes its own show delay and can't
  * hold anything richer than plain text. `position: fixed`, recomputed from
  * the anchor's own rect on each show, so — like Modal's backdrop above —
- * it escapes clipping from an `overflow-auto` ancestor (e.g. ScadToolbar's
- * horizontally-scrolling tool strip) without needing a portal.
+ * it escapes clipping from an `overflow-auto` ancestor without needing a
+ * portal. (Originally written for the SCAD editor's tool strip — see
+ * forge-scad-editor's own components/ui.tsx, which keeps its own copy.)
  */
 export function Tooltip({ content, children }: { content: ReactNode; children: ReactNode }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
