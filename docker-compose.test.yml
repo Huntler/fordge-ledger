@@ -1,7 +1,7 @@
 # Throwaway instance for manually clicking through the UI.
 #
 #   container-compose -f docker-compose.test.yml up -d --build
-#   container-compose -f docker-compose.test.yml down
+#   container-compose -f docker-compose.test.yml down -v
 #   -> http://localhost:8001
 #
 # There are deliberately no bind mounts, so this can never reach your real
@@ -16,9 +16,14 @@
 #
 # If you want the mounts genuinely RAM-backed, ./test-instance.sh passes
 # --tmpfs to the runtime directly, which does take effect.
+#
+# /library is a **named volume**, not tmpfs, and shared with
+# forge-scad-editor-test — a tmpfs mount is per-container, so the two
+# services would each see their own empty /library and the editor's
+# availability probe would correctly (but unhelpfully, for a test instance)
+# report a library mismatch. `down -v` still throws it away, which is all a
+# throwaway instance needs.
 
-# The directory name has a space in it, so the project name is set explicitly
-# rather than derived from it.
 name: forge-ledger-test
 
 services:
@@ -32,8 +37,9 @@ services:
     ports:
       # 8001, so it cannot collide with a real instance on 8000.
       - "8001:8000"
+    volumes:
+      - library-test:/library
     tmpfs:
-      - /library:size=256m,mode=1777
       - /data:size=256m,mode=1777
     environment:
       FORGE_DEMO_SEED: "true"
@@ -42,9 +48,29 @@ services:
       FORGE_WORKER_THREADS: "2"
       # Set to point at a LAN Ollama if you want to exercise LLM polish.
       FORGE_OLLAMA_URL: "${FORGE_OLLAMA_URL:-}"
+      FORGE_EDITOR_URL: "http://forge-scad-editor-test:8080"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  forge-scad-editor-test:
+    image: ghcr.io/huntler/forge-scad-editor:latest
+    restart: "no"
+    volumes:
+      - library-test:/library
+    environment:
+      SCADED_HOST_MODE: "forge"
+      SCADED_HOST_API: "http://forge-ledger-test:8000"
+      SCADED_LIBRARY_PATH: "/library"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/editor/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  library-test:
