@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import media, prints, projects, publish, system, tools
+from .api import editor, media, prints, projects, publish, system, tools
 from .api import settings as settings_api
 from .config import get_settings
 from .mcp_server import build_mcp_server, mcp_asgi_app
@@ -82,6 +82,13 @@ def create_app() -> FastAPI:
         app.state.mcp_asgi = mcp_asgi
         app.mount("/mcp", mcp_asgi, name="mcp")
         log.info("MCP server mounted at /mcp")
+
+    # Mounted before the SPA catch-all, which would otherwise swallow
+    # /editor/* — same ordering rule the MCP mount above follows. Present
+    # even when FORGE_EDITOR_URL is empty: the proxy itself returns a clear
+    # 503 in that case (see api/editor.py) rather than the route not
+    # existing at all.
+    app.include_router(editor.router)
 
     if STATIC_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")

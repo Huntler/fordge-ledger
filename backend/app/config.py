@@ -42,6 +42,13 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Base URL of a forge-scad-editor instance, e.g. http://forge-scad-editor:8080.
+    # Empty (the default) means "not configured" — the Editor tab hides, same
+    # as if the probe in state.py can't reach it. See EXTRACTION-PROGRESS/
+    # 03-host-proxy-and-probe.md for why this is a probe-driven feature flag,
+    # not a plain on/off switch.
+    editor_url: str = ""
+
     @property
     def db_path(self) -> Path:
         return self.data_path / "forge.db"

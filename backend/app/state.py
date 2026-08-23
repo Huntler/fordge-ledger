@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
+import uuid
+from typing import Any
+
+import httpx
 
 from .config import Settings, get_settings
 from .db import Database
@@ -51,6 +56,15 @@ class AppState:
         self._ingesting: set[str] = set()
         self.library.after_scan = self._ingest_new_prints
 
+        # Editor availability probe cache (§2.4, §3c) — a 60s TTL, 2s-timeout
+        # check of FORGE_EDITOR_URL, not the presence of the env var itself.
+        # That's what makes leaving FORGE_EDITOR_URL set after removing the
+        # editor's compose service degrade to "tab hidden" instead of "tab
+        # links to a dead page".
+        self._editor_status_cache: dict[str, Any] | None = None
+        self._editor_status_checked_at: float = 0.0
+        self._editor_last_available: bool | None = None
+
     def _ingest_new_prints(self, project_id: str) -> bool:
         """Returns True when something was ingested, so the scan refreshes."""
         # ingest_file writes a sidecar, which the watcher sees as a change; the
@@ -83,11 +97,101 @@ class AppState:
             progress=ctx.progress,
         )
 
+    # --------------------------------------------------- editor availability
+
+    # Bump on ANY change to the seven host-contract endpoints in §1.4 of the
+    # extraction plan (the .../sources, .../file, .../models/sources* family)
+    # or their request/response shapes. Mirrored on the forge-scad-editor
+    # side as HOST_CONTRACT_VERSION in api/system.py — the two must agree.
+    HOST_CONTRACT_VERSION = 1
+
+    _EDITOR_STATUS_TTL = 60.0
+    _EDITOR_PROBE_TIMEOUT = 2.0
+
+    def library_marker(self, *, create: bool = False) -> str:
+        """UUID identifying *this* library, at `<library>/_shared/.forge-instance`.
+
+        Create-if-missing, never overwrite — called with create=True once,
+        at startup. The editor's own /api/health echoes back whatever it
+        reads at the same path (it never writes it — see forge-scad-editor's
+        state.py), so comparing the two catches a mount pointing at the
+        wrong directory, an empty mount, or two containers that both mount
+        `/library` but land on genuinely different filesystems (R4) — which
+        comparing `library_path` strings alone cannot, and which
+        docker-compose.test.yml's tmpfs mounts would otherwise trigger as a
+        false negative (§Phase 6).
+        """
+        marker = self.settings.library_path / "_shared" / ".forge-instance"
+        if marker.is_file():
+            return marker.read_text(encoding="utf-8").strip()
+        if not create:
+            return ""
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        value = str(uuid.uuid4())
+        marker.write_text(value, encoding="utf-8")
+        return value
+
+    def editor_status(self) -> dict[str, Any]:
+        """Cached (60s TTL) probe of FORGE_EDITOR_URL — the authority behind
+        the Editor tab's visibility (§2.4), not the env var's mere presence.
+        A 2s timeout keeps a hung or unreachable editor from ever blocking
+        `/api/health` for the rest of the app.
+        """
+        now = time.monotonic()
+        cache_age = now - self._editor_status_checked_at
+        if self._editor_status_cache is not None and cache_age < self._EDITOR_STATUS_TTL:
+            return self._editor_status_cache
+
+        result = self._probe_editor()
+        self._editor_status_checked_at = now
+        self._editor_status_cache = result
+
+        # Log only on a state transition — a 60s poll that logs every
+        # failure buries the one line that actually matters.
+        available = result["available"]
+        if available != self._editor_last_available:
+            if available:
+                log.info("editor available at %s", self.settings.editor_url)
+            else:
+                log.warning("editor unavailable: %s", result.get("reason"))
+        self._editor_last_available = available
+        return result
+
+    def _probe_editor(self) -> dict[str, Any]:
+        if not self.settings.editor_url:
+            return {"available": False, "reason": "not configured"}
+        try:
+            response = httpx.get(
+                f"{self.settings.editor_url.rstrip('/')}/editor/api/health",
+                timeout=self._EDITOR_PROBE_TIMEOUT,
+            )
+            response.raise_for_status()
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001 — any failure means "unavailable", not a 500
+            return {"available": False, "reason": f"unreachable: {exc}"}
+
+        if body.get("host_contract") != self.HOST_CONTRACT_VERSION:
+            return {
+                "available": False,
+                "reason": (
+                    f"contract mismatch: editor wants v{body.get('host_contract')}, "
+                    f"this server speaks v{self.HOST_CONTRACT_VERSION}"
+                ),
+            }
+        if body.get("library_marker") != self.library_marker():
+            return {
+                "available": False,
+                "reason": "library mismatch: the editor is not mounted on this library",
+            }
+
+        return {"available": True, "path": "/editor/", "reason": None, **body}
+
     # ----------------------------------------------------------- lifecycle
 
     def startup(self) -> None:
         if self.settings.demo_seed:
             self.seed_demo()
+        self.library_marker(create=True)
         self.publish.ensure_defaults()
         self.tools.ensure_defaults()
         self.jobs.start()

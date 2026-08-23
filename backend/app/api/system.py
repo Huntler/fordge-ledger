@@ -37,6 +37,9 @@ def health(state: State) -> dict:
         "llm_provider": state.llm.load().provider,
         # False just means snapshots use full copies instead of clones.
         "reflink_available": reflink_probe(state.settings.library_path),
+        # Drives the Editor tab's visibility (§2.4) — the probe result, not
+        # FORGE_EDITOR_URL's mere presence. See AppState.editor_status.
+        "editor": state.editor_status(),
     }
 
 
