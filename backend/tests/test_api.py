@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import create_app
+from app.utils import content_hash
 
 from .conftest import write_sliced_3mf
 
@@ -578,6 +579,44 @@ def test_scad_source_can_be_edited_in_place(client: TestClient, project: dict):
     assert saved.text == "cube([20, 20, 20]);"
     sources_dir = library_root(client) / "desk-organizer" / "models" / "sources"
     assert [p.name for p in sources_dir.iterdir()] == ["clip.scad"]
+
+
+def test_editing_with_a_stale_base_hash_is_rejected(client: TestClient, project: dict):
+    """R10: a save whose base_hash no longer matches what's on disk means
+    someone else wrote to the file since this buffer was loaded — reject
+    it with 409 rather than silently clobbering their write."""
+    upload = client.post(
+        f"/api/projects/{project['id']}/models/sources",
+        files={"file": ("clip.scad", b"cube([10, 10, 10]);", "text/plain")},
+    )
+    rel_path = upload.json()["rel_path"]
+    original_hash = content_hash("cube([10, 10, 10]);")
+
+    # Someone else's save lands first.
+    client.put(
+        f"/api/projects/{project['id']}/models/sources/content",
+        params={"rel_path": rel_path},
+        content=b"cube([15, 15, 15]);",
+    )
+
+    # This buffer still thinks the original content is what's on disk.
+    stale = client.put(
+        f"/api/projects/{project['id']}/models/sources/content",
+        params={"rel_path": rel_path, "base_hash": original_hash},
+        content=b"cube([20, 20, 20]);",
+    )
+    assert stale.status_code == 409
+    # The other tab's write survives — this one never landed.
+    saved = client.get(f"/api/projects/{project['id']}/file", params={"rel_path": rel_path})
+    assert saved.text == "cube([15, 15, 15]);"
+
+    # Retrying without base_hash is an explicit overwrite — allowed.
+    forced = client.put(
+        f"/api/projects/{project['id']}/models/sources/content",
+        params={"rel_path": rel_path},
+        content=b"cube([20, 20, 20]);",
+    )
+    assert forced.status_code == 204
 
 
 def test_editing_a_binary_cad_source_is_rejected(client: TestClient, project: dict):
