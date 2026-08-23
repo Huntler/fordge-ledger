@@ -16,6 +16,7 @@ backend/app/static/
 # App data — the library is the product, but not in the repo
 /data/
 /library/
+/.test-library/
 *.db
 *.db-wal
 *.db-shm

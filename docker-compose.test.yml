@@ -1,28 +1,40 @@
 # Throwaway instance for manually clicking through the UI.
 #
 #   container-compose -f docker-compose.test.yml up -d --build
-#   container-compose -f docker-compose.test.yml down -v
+#   container-compose -f docker-compose.test.yml down
+#   rm -rf .test-library   # thrown away, not by compose (see below)
 #   -> http://localhost:8001
 #
-# There are deliberately no bind mounts, so this can never reach your real
-# projects, and every fresh container re-seeds the same four sample projects.
+# There are deliberately no bind mounts to *your* projects, and every fresh
+# container re-seeds the same four sample projects.
 #
-# Note, checked against Apple's container 1.0.0 + container-compose 1.0.0:
-# container-compose ignores the `tmpfs` key below, so /library and /data sit on
-# the container's own filesystem rather than in RAM. That still throws the data
-# away — a `down` followed by an `up` comes back with the pristine four sample
-# projects, verified — so nothing you do here survives, and nothing reaches the
-# host either way.
+# Note, checked against Apple's container 1.2.2 + container-compose 1.1.0:
+# container-compose ignores the `tmpfs` key below, so /data sits on the
+# container's own filesystem rather than in RAM — still thrown away on
+# `down`, just not literally RAM-backed. If you want it genuinely RAM-backed,
+# ./test-instance.sh passes --tmpfs to the runtime directly, which does work.
 #
-# If you want the mounts genuinely RAM-backed, ./test-instance.sh passes
-# --tmpfs to the runtime directly, which does take effect.
+# /library is a **bind mount to a throwaway host folder** (`.test-library`,
+# gitignored), not a named volume — verified the hard way: this container
+# runtime does not reliably support the same *named volume* attached to two
+# containers at once (concurrent `container-compose up` on both services
+# failed reproducibly with "the storage device attachment is invalid",
+# isolated down to the volume attach itself — the same two images run fine
+# individually). A bind-mounted host directory has no such problem, is what
+# the production docker-compose.yml already uses for the real
+# forge-ledger + forge-scad-editor pairing, and is exactly what a `.scad`
+# editor's tool-copy files being visible to both containers actually needs.
 #
-# /library is a **named volume**, not tmpfs, and shared with
-# forge-scad-editor-test — a tmpfs mount is per-container, so the two
-# services would each see their own empty /library and the editor's
-# availability probe would correctly (but unhelpfully, for a test instance)
-# report a library mismatch. `down -v` still throws it away, which is all a
-# throwaway instance needs.
+# Also checked the hard way: container-compose does not perform
+# `${VAR}`/`${VAR:-default}` host-environment substitution in `environment:`
+# values at all (every such reference passes through as a literal string) —
+# unlike real `docker compose`. FORGE_OLLAMA_URL below is a plain empty
+# string rather than `${FORGE_OLLAMA_URL:-}` for exactly that reason: the
+# literal, un-substituted string `${FORGE_OLLAMA_URL:-}` crashes
+# `/api/health` (services/llm.py's URL parser trips on the stray `:-}`). If
+# you're driving this file with real `docker compose` instead and want to
+# point at a LAN Ollama, override the container's environment directly
+# rather than relying on substitution here.
 
 name: forge-ledger-test
 
@@ -38,7 +50,7 @@ services:
       # 8001, so it cannot collide with a real instance on 8000.
       - "8001:8000"
     volumes:
-      - library-test:/library
+      - "./.test-library:/library"
     tmpfs:
       - /data:size=256m,mode=1777
     environment:
@@ -46,8 +58,7 @@ services:
       # Faster than the 2s default; nice when poking at files by hand.
       FORGE_WATCH_DEBOUNCE_SECONDS: "0.5"
       FORGE_WORKER_THREADS: "2"
-      # Set to point at a LAN Ollama if you want to exercise LLM polish.
-      FORGE_OLLAMA_URL: "${FORGE_OLLAMA_URL:-}"
+      FORGE_OLLAMA_URL: ""
       FORGE_EDITOR_URL: "http://forge-scad-editor-test:8080"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
@@ -60,7 +71,7 @@ services:
     image: ghcr.io/huntler/forge-scad-editor:latest
     restart: "no"
     volumes:
-      - library-test:/library
+      - "./.test-library:/library"
     environment:
       SCADED_HOST_MODE: "forge"
       SCADED_HOST_API: "http://forge-ledger-test:8000"
@@ -71,6 +82,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-
-volumes:
-  library-test:
