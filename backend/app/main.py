@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import editor, media, prints, projects, publish, system, tools
+from .api import editor, media, prints, projects, publish, system
 from .api import settings as settings_api
 from .config import get_settings
 from .mcp_server import build_mcp_server, mcp_asgi_app
@@ -69,7 +69,6 @@ def create_app() -> FastAPI:
         publish.router,
         settings_api.router,
         system.router,
-        tools.router,
     ):
         app.include_router(router)
 
