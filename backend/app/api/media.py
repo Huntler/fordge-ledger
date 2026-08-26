@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from ..services.images import EXPORT_PRESETS, render_backend_available
 from ..services.library import PRINTS_DIR
-from ..utils import safe_join, slugify, today
+from ..utils import StaleWriteError, safe_join, slugify, today
 from .deps import State, require_project
 from .schemas import (
     CoverImage,
@@ -89,12 +89,23 @@ async def upload_model_source(state: State, project_id: str, file: UploadFile = 
 
 @router.put("/models/sources/content", status_code=204)
 async def write_model_source(
-    state: State, project_id: str, rel_path: str, request: Request
+    state: State, project_id: str, rel_path: str, request: Request, base_hash: str | None = None
 ) -> None:
-    """Save from the in-browser SCAD editor — overwrites an existing file in place."""
+    """Save from the SCAD editor — overwrites an existing file in place.
+
+    `base_hash` (R10, optional) guards against clobbering a concurrent
+    write to the same file — see ImageService.write_model_source.
+    """
     require_project(state, project_id)
     try:
-        state.images.write_model_source(project_id, rel_path, (await request.body()).decode("utf-8"))
+        state.images.write_model_source(
+            project_id,
+            rel_path,
+            (await request.body()).decode("utf-8"),
+            base_hash=base_hash,
+        )
+    except StaleWriteError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

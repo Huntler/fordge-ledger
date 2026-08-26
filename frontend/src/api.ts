@@ -177,13 +177,17 @@ export interface MarkdownDoc {
   body: string;
 }
 
-export interface Tool {
-  name: string;
-  body: string;
-  has_icon: boolean;
-  /** True if the icon has real transparency (not a flat photo) — safe to
-   * tint to the toolbar's active/inactive state rather than shown as-is. */
-  has_alpha: boolean;
+/** Whether a forge-scad-editor instance is reachable — drives the Editor
+ * tab's visibility (§2.4 in the extraction plan). `available` is the
+ * authority, not FORGE_EDITOR_URL's mere presence; `reason` is set on every
+ * `available: false` case (not configured / unreachable / contract mismatch
+ * / library mismatch) for the Settings row and the server log line. */
+export interface EditorAvailability {
+  available: boolean;
+  reason: string | null;
+  path?: string;
+  version?: string;
+  host_contract?: number;
 }
 
 export interface Health {
@@ -197,6 +201,7 @@ export interface Health {
   llm_configured: boolean;
   llm_provider: string;
   reflink_available: boolean;
+  editor: EditorAvailability;
 }
 
 export type LlmProvider = "ollama" | "lmstudio";
@@ -476,29 +481,6 @@ export const api = {
   snippets: () => request<MarkdownDoc[]>("/api/snippets"),
   saveSnippet: (doc: MarkdownDoc) =>
     request<MarkdownDoc>("/api/snippets", { method: "PUT", body: json(doc) }),
-
-  tools: () => request<Tool[]>("/api/tools"),
-  /** icon omitted keeps the existing one (if any); pass null to leave it untouched too. */
-  saveTool: (name: string, body: string, icon?: File | null) => {
-    const form = new FormData();
-    form.append("name", name);
-    form.append("body", body);
-    if (icon) form.append("icon", icon);
-    return request<Tool>("/api/tools", { method: "PUT", body: form });
-  },
-  deleteTool: (name: string) =>
-    request<void>(`/api/tools/${encodeURIComponent(name)}`, { method: "DELETE" }),
-  toolIconUrl: (name: string) => `/api/tools/${encodeURIComponent(name)}/icon`,
-  /** Physically copies the tool's .scad into the project's models/sources/tools/. */
-  addToolToProject: (projectId: string, name: string) =>
-    request<{ rel_path: string }>(
-      `/api/tools/${encodeURIComponent(name)}/projects/${projectId}`,
-      { method: "POST" },
-    ),
-  removeToolFromProject: (projectId: string, name: string) =>
-    request<void>(`/api/tools/${encodeURIComponent(name)}/projects/${projectId}`, {
-      method: "DELETE",
-    }),
 
   publishDraft: (projectId: string) =>
     request<PublishDraft>(`/api/projects/${projectId}/publish`),

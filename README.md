@@ -102,6 +102,9 @@ faster at it than emulation would be.
 
 Open `http://<nas>:8000`. Check `http://<nas>:8000/api/health` shows
 `"demo_instance": false` and a `library_path` with your real project count.
+The same command also pulls **forge-scad-editor** — nothing extra to do for
+the Editor tab; see [above](#the-in-browser-scad-editor) if you'd rather not
+run it at all.
 
 The first boot scans the whole library, so give it a minute if the folder is
 large. `/data` holds the SQLite cache and thumbnails — keep it on disk so a
@@ -420,62 +423,30 @@ the same orphan-detection rule as everywhere else: nothing is absorbed silently.
 
 ### The in-browser SCAD editor
 
-Any `.scad` file under `models/sources/` has an **Edit** action, and Sources
-has a **+ New .scad** button — both open the same editor with a live 3D
-preview. The top-nav **Editor** page opens it library-wide instead: a file
-explorer lists every project as a folder with its `.scad` sources underneath
-(**+** next to a project name starts a new one there), and picking a file
-loads it into the same editor next to the tree. OpenSCAD itself runs as
-WebAssembly in a Web Worker, so none of this needs a server round-trip and it
-works offline. **Save** overwrites the file in place (a new source is created
-via the same upload path as drag-and-drop, then edits go in place from there
-on); **Export STL** compiles the current code straight to an `.stl` next to
-the source, same name, always overwriting the previous export.
+The **Editor** tab — a full OpenSCAD editor with a live 3D preview, running
+entirely in the browser via WebAssembly — comes from a separate image,
+[**forge-scad-editor**](https://github.com/Huntler/forge-scad-editor). It is
+not part of this repo or this image; Forge Ledger only knows how to reach it
+(`FORGE_EDITOR_URL`, checked via a health probe) and embed it through an
+`/editor/*` reverse proxy. Any `.scad` file under `models/sources/` gets an
+**Edit** action once it's available, opening a modal onto that same editor
+for the one file; Sources' **+ New .scad** button opens it seeded from a
+blank template.
 
-**The WASM build is fetched, not an npm dependency.** `scripts/fetch-openscad-wasm.mjs`
-downloads openscad.org's own official Manifold-enabled build (the same one
-[openscad-playground](https://github.com/openscad/openscad-playground) pins
-in its `libs-config.json`) into `public/openscad/`, pinned by URL and sha256
-checksum in that script — it runs automatically before `dev`/`build`
-(`predev`/`prebuild` in `package.json`) and is idempotent, so a fresh clone
-pays one download. The files aren't committed to git. Rendering uses
-`--backend=Manifold` (see `openscad.worker.ts`), OpenSCAD's fast CSG kernel —
-roughly 40x faster than the legacy CGAL kernel on booleans over rotated
-geometry, measured by hand on a real model. It's still single-threaded (no
-pthread/SharedArrayBuffer in this build), but Manifold's win here is
-algorithmic rather than from parallelism.
+**To enable it:** add the `forge-scad-editor` service from
+`docker-compose.yml` (already there, commented nowhere — just don't remove
+it) and mount the *same* library path both containers use. **To disable it:**
+remove (or comment out) that service and redeploy — no code change, no
+rebuild. The tab's presence is driven entirely by a runtime probe of
+`FORGE_EDITOR_URL`, not by a build-time flag: if the editor container is
+absent, unreachable, or running an incompatible version, the tab simply
+doesn't render, `/editor` redirects to `/library`, and the Sources tab falls
+back to listing/downloading/deleting `.scad` files without an Edit button.
 
-**Known limitation: reusing one WASM module instance across renders is
-unreliable**, even with this build. Verified by hand: a *second* `callMain()`
-call on the same OpenSCAD module instance reliably fails (`program has
-already aborted!`) — even re-rendering the exact same plain, non-boolean cube
-twice in a row. It is not specific to CSG booleans
-(`difference()`/`union()`/`intersection()`); something in the module's
-internal geometry cache does not survive being reused at all. The fix is a
-fresh module instance per render (see `openscad.worker.ts`), which avoids the
-crash entirely at the cost of paying WASM instantiation again each time. If a
-render still crashes with a bare number, it now means something else
-(degenerate geometry, an actual sandbox resource limit), and the editor shows
-a plain-language hint for that case.
-
-**Linting and autocomplete run off a hand-written OpenSCAD grammar**, not
-`openscad-wasm` — a real Lezer grammar (`frontend/src/lang-openscad/`,
-compiled from `openscad.grammar` via `npm run grammar:build`) drives syntax
-highlighting, autocomplete, and lint diagnostics, all instantly and offline,
-without paying for a WASM render on every keystroke. Lezer's own error
-recovery gives free "syntax error" diagnostics wherever the parser can't make
-sense of something; a handful of hand-written checks layer on top of that
-same parse tree: unknown module/function calls, duplicate `module`/`function`
-declarations, `$name` special-variable typos, and `if (x = 1)` (missing a
-second `=`). Autocomplete offers OpenSCAD's builtins plus whatever
-`module`/`function`/top-level variable names the current file itself
-declares. The grammar covers the practical subset of the language (see the
-comment at the top of `openscad.grammar` for the deliberate cuts — no
-resolving `include`/`use` targets, at most one modifier character per call,
-no Customizer annotations); the "unknown module/function" check in
-particular is skipped outright for any file containing `include`/`use`,
-since v1 has no way to know what symbols those bring in and a linter that
-cries wolf on legitimate cross-file calls just gets ignored.
+See that repo's README for how the editor itself works — the WASM build,
+render pipeline, its own hand-written OpenSCAD grammar for linting and
+autocomplete, and the two ways it can be deployed (embedded here, or
+genuinely standalone over any folder).
 
 ---
 

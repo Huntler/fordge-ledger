@@ -1,10 +1,9 @@
-import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
   fileUrl,
-  readTextFile,
   thumbUrl,
   type ImageVariant,
   type Project,
@@ -13,11 +12,6 @@ import {
   type SourceFile,
 } from "../api";
 import { DropZone } from "../components/DropZone";
-import { NEW_SCAD_TEMPLATE } from "../lib/scadTemplate";
-
-// CodeMirror + three.js + the ~14MB openscad-wasm worker only load when a
-// .scad panel actually opens — everyone else's page weight is unaffected.
-const ScadEditor = lazy(() => import("../components/ScadEditor").then((m) => ({ default: m.ScadEditor })));
 import {
   ConfirmDialog,
   EmptyState,
@@ -965,8 +959,9 @@ function ImagesTab({ project }: { project: Project }) {
 function SourcesTab({ project }: { project: Project }) {
   const queryClient = useQueryClient();
   const notify = useUi((s) => s.notify);
-  const [editing, setEditing] = useState<{ relPath: string | null; code: string } | null>(null);
+  const [editing, setEditing] = useState<{ relPath: string | null } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SourceFile | null>(null);
+  const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health });
 
   const { data: sources } = useQuery({
     queryKey: ["sources", project.id],
@@ -999,13 +994,10 @@ function SourcesTab({ project }: { project: Project }) {
     onError: (error: Error) => notify(error.message, "error"),
   });
 
-  const openScad = async (file: SourceFile) => {
-    try {
-      setEditing({ relPath: file.rel_path, code: await readTextFile(project.id, file.rel_path) });
-    } catch (err) {
-      notify(err instanceof Error ? err.message : String(err), "error");
-    }
-  };
+  // The editor fetches the file's own text itself (deep link, see
+  // forge-scad-editor's pages/Editor.tsx) — the host no longer needs to
+  // pre-read it, so this is just picking which file the modal opens to.
+  const openScad = (file: SourceFile) => setEditing({ relPath: file.rel_path });
 
   return (
     <div className="space-y-5">
@@ -1024,16 +1016,20 @@ function SourcesTab({ project }: { project: Project }) {
           hint="The files you actually edit. Meshes stay in their own model folders."
           project={project}
           files={sources?.models ?? []}
-          onEditScad={openScad}
+          // Without the editor, sources still list/download/delete — only
+          // opening one to edit needs it (§4b: "there is nothing to open").
+          onEditScad={health?.editor.available ? openScad : undefined}
           onDelete={setPendingDelete}
           action={
-            <button
-              type="button"
-              className="btn btn-ghost text-xs"
-              onClick={() => setEditing({ relPath: null, code: NEW_SCAD_TEMPLATE })}
-            >
-              + New .scad
-            </button>
+            health?.editor.available && (
+              <button
+                type="button"
+                className="btn btn-ghost text-xs"
+                onClick={() => setEditing({ relPath: null })}
+              >
+                + New .scad
+              </button>
+            )
           }
         />
         <SourceList
@@ -1053,23 +1049,60 @@ function SourcesTab({ project }: { project: Project }) {
         onCancel={() => setPendingDelete(null)}
       />
 
-      {editing && (
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center">
-              <Spinner label="Loading OpenSCAD…" />
-            </div>
-          }
-        >
-          <ScadEditor
-            projectId={project.id}
-            relPath={editing.relPath}
-            initialCode={editing.code}
-            onClose={() => setEditing(null)}
-            onSaved={(relPath) => setEditing({ relPath, code: editing.code })}
-          />
-        </Suspense>
+      {editing && health?.editor.available && (
+        <EditorModal
+          editorPath={health.editor.path ?? "/editor/"}
+          projectId={project.id}
+          relPath={editing.relPath}
+          onClose={() => setEditing(null)}
+        />
       )}
+    </div>
+  );
+}
+
+/**
+ * Modal iframe onto the editor, deep-linked to one file — replaces the old
+ * in-tree <ScadEditor> modal (§4b). `file` omitted means "new file, seeded
+ * from the editor's own template"; `embed=1` tells the editor to hide its
+ * own project explorer and render just the workspace, since this app
+ * already knows which project/file it opened this iframe for.
+ */
+function EditorModal({
+  editorPath,
+  projectId,
+  relPath,
+  onClose,
+}: {
+  editorPath: string;
+  projectId: string;
+  relPath: string | null;
+  onClose: () => void;
+}) {
+  const params = new URLSearchParams({ project: projectId, embed: "1" });
+  if (relPath) params.set("file", relPath);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="card w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-ink-600 shrink-0">
+          <h2 className="font-medium">{relPath ? relPath.slice("models/sources/".length) : "New SCAD source"}</h2>
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <iframe
+          src={`${editorPath}?${params}`}
+          title="SCAD Editor"
+          className="flex-1 border-0"
+        />
+      </div>
     </div>
   );
 }
