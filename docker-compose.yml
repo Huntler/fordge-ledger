@@ -31,9 +31,44 @@ services:
       # Never seed samples into a real library.
       FORGE_DEMO_SEED: "false"
       TZ: "${TZ:-Europe/Berlin}"
+      # Comment this out (or drop the forge-scad-editor service below) to
+      # hide the Editor tab. The probe in state.py, not this variable, is
+      # authoritative — see EXTRACTION-PROGRESS/06-compose-integration.md.
+      FORGE_EDITOR_URL: "http://forge-scad-editor:8080"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
+    # No depends_on, deliberately: the probe already handles an editor that
+    # is absent, slow to start, or stopped later. Adding it would pin this
+    # file to Compose >= 2.20 for `required: false` and buy nothing.
+
+  forge-scad-editor:
+    # Published by forge-scad-editor's own CI (D1 in the extraction plan) —
+    # no `build:` here, unlike forge-ledger's own service above. For local
+    # dev against a sibling checkout instead of a published tag, build it
+    # yourself and point this at that tag, e.g.:
+    #   container build -t ghcr.io/huntler/forge-scad-editor:latest ../forge-scad-editor
+    image: ghcr.io/huntler/forge-scad-editor:latest
+    container_name: forge-scad-editor
+    restart: unless-stopped
+    # No published port, deliberately: read-write access to the whole
+    # library with no auth is only acceptable behind forge-ledger's own
+    # /editor/ proxy, not as a second unauthenticated surface on the LAN.
+    volumes:
+      # MUST resolve to the same directory as forge-ledger's /library, or
+      # the host's probe reports a library mismatch and hides the tab.
+      - "${LIBRARY_PATH:-./library}:/library"
+    environment:
+      SCADED_HOST_MODE: "forge"
+      SCADED_HOST_API: "http://forge-ledger:8000"
+      SCADED_LIBRARY_PATH: "/library"
+      TZ: "${TZ:-Europe/Berlin}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/editor/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

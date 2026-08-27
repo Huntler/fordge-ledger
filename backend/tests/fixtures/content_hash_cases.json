@@ -1,0 +1,14 @@
+{
+  "_comment": "Shared fixture for content_hash (R10) — read by a pytest case (test_content_hash.py, both this repo and fordge-ledger's) and a Vitest case (frontend/src/lib/__tests__/contentHash.test.ts). All three must agree on every case, since a `forge`-mode save's base_hash is computed by this repo's frontend but checked by fordge-ledger's backend. Values computed once from the canonical Python implementation (backend/app/utils.py's content_hash) and then just asserted everywhere else.",
+  "cases": [
+    { "text": "", "hash": "811c9dc5" },
+    { "text": "a", "hash": "e40c292c" },
+    { "text": "cube([10, 10, 10]);", "hash": "1d71949b" },
+    { "text": "use <tools/screw.scad>;\ncube(10);", "hash": "91e4061e" },
+    {
+      "text": "module hook() { rotate_extrude(angle = 180) translate([10, 0]) circle(r = 3); }\nhook();\n",
+      "hash": "93d6e26b"
+    },
+    { "text": "ünïcödé and emoji 🎉 test", "hash": "fd9ecd21" }
+  ]
+}

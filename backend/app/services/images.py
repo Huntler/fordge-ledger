@@ -20,7 +20,7 @@ from PIL import Image
 
 from ..config import Settings
 from ..db import Database
-from ..utils import safe_join, slugify
+from ..utils import StaleWriteError, content_hash, safe_join, slugify
 from .events import bus
 from .library import (
     CAD_EXTENSIONS,
@@ -185,13 +185,25 @@ class ImageService:
         bus.publish("model.source_added", {"project_id": project_id, "rel_path": rel})
         return rel
 
-    def write_model_source(self, project_id: str, rel_path: str, text: str) -> None:
-        """Overwrite an existing `.scad` source in place — the in-app editor's Save.
+    def write_model_source(
+        self, project_id: str, rel_path: str, text: str, *, base_hash: str | None = None
+    ) -> None:
+        """Overwrite an existing `.scad` source in place — the SCAD editor's Save.
 
         Unlike add_model_source, this never renames or dedups: it edits the file
         that's already there instead of adding a new one. Scoped to `.scad`
         specifically — the other CAD_EXTENSIONS are binary formats with no
         business being pushed through a raw-text overwrite endpoint.
+
+        `base_hash` (R10) is the content_hash of whatever text the caller's
+        buffer was loaded from. When given and it no longer matches what's
+        actually on disk, someone else — another tab on the same file, most
+        plausibly, now that both the Editor tab and a project's Sources-tab
+        modal are the same editor instance — wrote to it since. That raises
+        StaleWriteError instead of silently clobbering their write; the
+        caller decides whether to retry without base_hash (an explicit
+        overwrite) or reload and reapply. Not real locking, just turning
+        silent data loss into a question — see the extraction plan's R10.
         """
         directory = self.library.dir_for_id(project_id)
         if directory is None:
@@ -204,6 +216,13 @@ class ImageService:
             raise ValueError("not a model source path")
         if not target.is_file():
             raise ValueError("file not found")
+
+        if base_hash is not None:
+            current = target.read_text(encoding="utf-8")
+            if content_hash(current) != base_hash:
+                raise StaleWriteError(
+                    "file changed on disk since it was opened — reload before saving"
+                )
 
         target.write_text(text, encoding="utf-8")
         self.library.scan_project_dir(directory)

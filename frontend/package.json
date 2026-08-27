@@ -4,35 +4,21 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/fetch-openscad-wasm.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/fetch-openscad-wasm.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit",
-    "grammar:build": "lezer-generator src/lang-openscad/openscad.grammar -o src/lang-openscad/parser.js"
+    "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@codemirror/autocomplete": "^6.20.3",
-    "@codemirror/language": "^6.12.4",
-    "@codemirror/lint": "^6.9.7",
-    "@codemirror/view": "^6.43.8",
-    "@lezer/common": "^1.5.2",
-    "@lezer/highlight": "^1.2.3",
-    "@lezer/lr": "^1.4.10",
     "@tanstack/react-query": "^5.59.0",
-    "@uiw/react-codemirror": "^4.25.11",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
-    "three": "^0.170.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "@lezer/generator": "^1.8.0",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
-    "@types/three": "^0.170.0",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",

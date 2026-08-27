@@ -13,6 +13,36 @@ from pathlib import Path
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
+def content_hash(text: str) -> str:
+    """Cheap fingerprint for the stale-write guard (R10) — not a security
+    hash, just enough to tell "the file changed under you" from "it didn't"
+    without shipping the file's full content back on every save attempt.
+
+    FNV-1a (32-bit), not SHA-256: this needs to be computed client-side too
+    (forge-scad-editor's ScadWorkspace.tsx, before every Save), and
+    `crypto.subtle` — the only SHA-256 available in a browser — refuses to
+    run outside a secure context. This app is explicitly LAN/plain-HTTP
+    (see README), so that path is unavailable in practice. A 32-bit
+    fingerprint is more than enough for "did this exact file change under
+    me" — a collision only ever causes a save that should have been
+    blocked to go through, never data loss beyond what R10 already accepts
+    (this is a guard, not a lock). Kept in sync with the identical
+    implementation in forge-scad-editor's own utils.py and its frontend's
+    lib/contentHash.ts.
+    """
+    h = 0x811C9DC5
+    for byte in text.encode("utf-8"):
+        h ^= byte
+        h = (h * 0x01000193) & 0xFFFFFFFF
+    return f"{h:08x}"
+
+
+class StaleWriteError(ValueError):
+    """Raised when a save's base_hash doesn't match the file's current
+    on-disk content — someone else (another tab, another app) wrote to it
+    since this buffer was loaded. Maps to 409, not 422/400 — see R10."""
+
+
 def new_ulid() -> str:
     """Lexicographically sortable 26-char id. Stable across folder renames."""
     timestamp = int(time.time() * 1000)
